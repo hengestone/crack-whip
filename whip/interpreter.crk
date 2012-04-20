@@ -1,0 +1,35 @@
+import crack.cont.hashmap HashMap;
+import crack.io FStr, cerr, cout;
+import crack.lang CString;
+import crack.net Pipe;
+import crack.process Process;
+import crack.runtime SockAddr, SockAddrUn, open, accept, listen, bind, socket,
+                    close, AF_UNIX, SOCK_SEQPACKET, O_NONBLOCK, c_strerror, tempnam, strlen,
+                    unlink;
+import crack.strutil StringArray;
+import crack.sys env, strerror;
+
+// Interpreter is a client that connects to a Unix socket, then forks to make the
+// socket available to an interpreter process (bash, ruby, python etc)
+class Interpreter {
+  StringArray __cmd;
+  Pipe __pipe;
+  Process process;
+
+  oper init(StringArray cmd) : __cmd = cmd, process = null, __pipe(O_NONBLOCK){
+    cerr `Opened pipe=$__pipe\n`;
+    __pipe.setReader();
+    addr := __pipe.getAddr();
+    process = Process(cmd, env);
+    process.putStdIn(FStr() `echo hello >&$(addr.writefd)\n`);
+  }
+
+  Pipe getPipe(){ return __pipe;}
+
+  int exe(String script){
+    process.putStdIn(script);
+    return script.size; // TODO, get real number of bytes sent
+  }
+
+}
+

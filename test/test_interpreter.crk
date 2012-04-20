@@ -1,0 +1,18 @@
+// Test for Entity class
+import crack.strutil StringArray;
+import crack.net Poller, POLLIN, POLLOUT;
+import whip.interpreter Interpreter;
+import whip.sockserver InterpreterContainer;
+import crack.time TimeDelta, seconds;
+import crack.io FStr;
+
+server := InterpreterContainer();
+Interpreter intp = {StringArray!["/bin/bash", "-s"]};
+server.add(intp);
+int i = 0;
+delay := seconds(1);
+while (i<10){
+  if (intp.exe(FStr() `echo hello $(i++)\n`) == -1)
+    break;
+  server.processOnce(delay);
+}
