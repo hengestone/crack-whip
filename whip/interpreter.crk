@@ -1,35 +1,162 @@
 import crack.cont.hashmap HashMap;
-import crack.io FStr, cerr, cout;
-import crack.lang CString;
+import crack.io FStr, cerr, cout, FileHandle;
+import crack.io.readers LineReader;
+import crack.lang CString, Exception;
 import crack.net Pipe;
 import crack.process Process;
-import crack.runtime SockAddr, SockAddrUn, open, accept, listen, bind, socket,
-                    close, AF_UNIX, SOCK_SEQPACKET, O_NONBLOCK, c_strerror, tempnam, strlen,
-                    unlink;
+import crack.runtime errno;
 import crack.strutil StringArray;
 import crack.sys env, strerror;
+import crack.cont.array Array;
+import whip.entity Entity;
 
 // Interpreter is a client that connects to a Unix socket, then forks to make the
 // socket available to an interpreter process (bash, ruby, python etc)
-class Interpreter {
-  StringArray __cmd;
-  Pipe __pipe;
-  Process process;
 
-  oper init(StringArray cmd) : __cmd = cmd, process = null, __pipe(O_NONBLOCK){
-    cerr `Opened pipe=$__pipe\n`;
-    __pipe.setReader();
-    addr := __pipe.getAddr();
-    process = Process(cmd, env);
-    process.putStdIn(FStr() `echo hello >&$(addr.writefd)\n`);
+class IntProcess : Process {
+  oper init(String cmd): Process(cmd) { }
+  oper init(StringArray args, HashMap[String, String] envMap): Process(args, envMap) {}
+  int getInputFD() { return _pd.stdin; }
+  int getOutputFD() { return _pd.stdout; }
+  int getErrFD() { return _pd.stderr; }
+}
+
+const uint INTP_READY = 0,
+           INTP_BUSY = 1,
+           INTP_ERROR = 2,
+           INTP_DONE = 3;
+
+
+@abstract
+class Interpreter {
+  IntProcess _process;
+  StringArray _statusCmds;
+
+  @abstract
+  oper init(StringArray cmd, StringArray statusCmds) : _statusCmds = statusCmds { }
+
+  @abstract
+  Array[FileHandle] getFileHandles();
+
+  @abstract
+  int dataReady(FileHandle f);
+
+  @abstract
+  int stop();
+
+  @abstract
+  int exe(String script);
+
+}
+
+// An intepreter that spawns a subprocess and creates a pipe to read status from
+class SimpleInterpreter : Interpreter {
+  Pipe _pipe, _stdoutPipe, _stderrPipe;
+  LineReader _lineReader, _stdoutPipeLineReader, _stderrPipeLineReader;
+  HashMap[int, LineReader] readers = {};
+
+  oper init(StringArray cmd, StringArray statusCmds) :
+    Interpreter(cmd, statusCmds)
+  {
+    _pipe = Pipe();
+    cerr `Opened pipe=$_pipe\n`;
+    _pipe.setNonBlocking(true);
+    _pipe.setReader();
+    _lineReader=LineReader(_pipe);
+
+    addr := _pipe.getAddr();
+    env["WHIP_WRITEFD"] = FStr() `$(addr.writefd)`;
+    env["WHIP_READFD"] = FStr() `$(addr.readfd)`;
+    _process = IntProcess(cmd, env);
+
+    _stdoutPipe = Pipe(int32(0), int32(_process.getOutputFD()), -1);
+    _stdoutPipe.setReader();
+    _stdoutPipe.setNonBlocking(true);
+    _stderrPipe = Pipe(int32(0), int32(_process.getErrFD()), -1);
+    _stderrPipe.setReader();
+    _stderrPipe.setNonBlocking(true);
+
+    _stdoutPipeLineReader = LineReader(_stdoutPipe);
+    _stderrPipeLineReader = LineReader(_stderrPipe);
+    readers[_pipe.getFD()] = _lineReader;
+
+    readers[_stdoutPipe.getFD()] = _stdoutPipeLineReader;
+    readers[_stderrPipe.getFD()] = _stderrPipeLineReader;
+
+    cerr `statusCmds = $_statusCmds\n`;
+
+    _process.putStdIn(_statusCmds[INTP_READY]);
   }
 
-  Pipe getPipe(){ return __pipe;}
+  Array[FileHandle] getFileHandles(){
+    return Array[FileHandle]![_pipe, _stdoutPipe, _stderrPipe];
+  }
+
+  int stop() {
+    _process.close();
+    return 0;
+  }
 
   int exe(String script){
-    process.putStdIn(script);
+    _process.putStdIn(_statusCmds[INTP_BUSY]);
+    _process.putStdIn(script);
+    _process.putStdIn(_statusCmds[INTP_DONE]);
     return script.size; // TODO, get real number of bytes sent
+  }
+
+  int dataReady(FileHandle f){
+    int numLines=0;
+    try {
+      fd := f.fd;
+      lr := readers.get(fd, null);
+      if (lr){
+        for (lineItem :in lr){
+          cout `$fd: $lineItem`;
+        }
+        numLines++;
+      }
+      else {
+        cerr `FileHandle($fd) not found!\n`;
+      }
+    }
+    catch(Exception ex){
+      err := errno();
+      if (err != 11)
+        cerr `readline failed: $(strerror())\n`;
+    }
+    return numLines;
   }
 
 }
 
+
+
+class ShellInterpreter : SimpleInterpreter {
+  oper init() :
+    SimpleInterpreter(StringArray!["/bin/bash", "-s"],
+                      StringArray!['echo "status: READY" >&$WHIP_WRITEFD\n',
+                                   'echo "status: BUSY" >&$WHIP_WRITEFD\n',
+                                   'echo "status: ERROR" >&$WHIP_WRITEFD\n',
+                                   'echo "status: DONE" >&$WHIP_WRITEFD\n'])
+  { }
+}
+
+class RubyInterpreter : SimpleInterpreter {
+  oper init() :
+    SimpleInterpreter(StringArray!["/usr/bin/irb", "--noprompt", "--noreadline", "-f"],
+                      StringArray![
+r'IO.open(ENV["WHIP_READFD"].to_i).close()
+__whip_status_io = nil
+begin
+  __whip_status_io = IO.new(ENV["WHIP_WRITEFD"].to_i, "w")
+  __whip_status_io.sync = true
+rescue
+  STDERR.write("Unable to open __whip_status_io\n")
+end
+__whip_status_io.syswrite("status: READY ruby\n")
+',
+                                   '__whip_status_io.syswrite("status: BUSY ruby\\n")\nbegin\n',
+                                   '__whip_status_io.syswrite("status: ERROR ruby\\n")\n',
+                                   'end while false\n__whip_status_io.syswrite("status: DONE ruby\\n")\n'])
+  { }
+}

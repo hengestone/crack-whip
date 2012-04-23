@@ -1,18 +1,27 @@
 // Test for Entity class
 import crack.strutil StringArray;
 import crack.net Poller, POLLIN, POLLOUT;
-import whip.interpreter Interpreter;
+import whip.interpreter ShellInterpreter, RubyInterpreter;
 import whip.sockserver InterpreterContainer;
 import crack.time TimeDelta, seconds;
 import crack.io FStr;
 
 server := InterpreterContainer();
-Interpreter intp = {StringArray!["/bin/bash", "-s"]};
-server.add(intp);
+#~ ShellInterpreter intp = {};
+#~ server.add(intp, intp.getFileHandles()[0]);
+RubyInterpreter rintp = {};
+server.add(rintp, rintp.getFileHandles()[0]);
+server.add(rintp, rintp.getFileHandles()[2]);
+
 int i = 0;
-delay := seconds(1);
+delay := seconds(10);
+
 while (i<10){
-  if (intp.exe(FStr() `echo hello $(i++)\n`) == -1)
+#~   if (intp.exe(FStr() `echo hello $(i)\n`) == -1)
+#~     break;
+  line := "puts('hello ruby 0')\n";
+  if (rintp.exe(line) == -1)
     break;
+  i++;
   server.processOnce(delay);
 }

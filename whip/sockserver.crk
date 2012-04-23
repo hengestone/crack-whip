@@ -10,177 +10,82 @@ import crack.ascii strip;
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
 import crack.lang SystemError;
-import crack.io cerr, StandardFormatter, StringFormatter, Writer, FStr;
+import crack.io cerr, StandardFormatter, StringFormatter, Writer, FStr, FileHandle;
 import crack.lang AppendBuffer, Buffer, ManagedBuffer, WriteBuffer, CString;
-import crack.net Pollable, Poller, Pipe, POLLIN, POLLOUT, POLLERR, POLLHUP;
-import crack.strutil StringArray;
+import crack.net Poller, POLLIN, POLLOUT, POLLERR, POLLHUP;
 import crack.sys strerror;
 import crack.time TimeDelta;
 import crack.logger Logger, DEBUG, WARN, INFO, ERROR, FATAL;
 import whip.interpreter Interpreter;
 
-@import crack.ann define, interface, implements;
-
-StandardFormatter NULL_FORMATTER = null;
-
-class OutQueue : Array[String] @implements Writer {
-    void write(Buffer data) {
-        if (data.isa(String))
-            append(String.cast(data));
-        else
-            append(String(data));
-    }
-}
-
-
 /// An Interpreter Server Container
 class InterpreterContainer {
   Logger log = {cerr, DEBUG, "progname datetime severity msg"};
 
-    class Client {
-        ManagedBuffer inbuf = {1024};
-        OutQueue outQueue = {};
-        Pipe _pipe;
-        int state;
+  HashMap[int, Interpreter] _interpreters = {};
+  Poller _poller = {};
+  Array[FileHandle] __toRemove = {};
+  int status, refCount;
 
-        ## the next input position
-        uint inPos;
-
-        ## the index of the first byte in the buffer that has been read but
-        ## not processed.
-        uint pos;
-
-        oper init(Pipe pipe) :
-            _pipe = pipe {
-        }
-
-        ## Returns a byteptr to the current input buffer read position.
-        @final byteptr getInputBuf() {
-            if (inbuf.cap - inPos < 1024)
-                # since the start size is 1024, we can assume that we will
-                # grow to accomodate a 1024 byte buffer.
-                inbuf.grow(inbuf.cap * 2);
-            return inbuf.buffer + pos;
-        }
-
-        @final void wrapBuffer(uintz start) {
-            inPos -= start;
-            inbuf.move(0, start, inPos);
-            pos = 0;
-        }
-
-        @final void parseNext(uint amtRead) {
-            end := inPos + amtRead;
-            inPos += amtRead;
-            line := String(inbuf.buffer + pos, end - pos, false);
-            // log.debug(FStr() `pos=$pos, end=$end, line=$line`);
-            wrapBuffer(pos);
-        }
-
-        @final bool readChunk() {
-            amtRead := _pipe.read(WriteBuffer(getInputBuf(), 1024));
-            // log.info(FStr() `amtRead = $amtRead\n`);
-            if (!amtRead) {
-                return false;
-            } else {
-                parseNext(amtRead);
-                return true;
-            }
-        }
-    } // end of Client
-
-
-    HashMap[int, Client] __clients = {}; // the key is the socket fd, it's guaranteed to be unique
-    HashMap[int, Interpreter] __interpreters = {};
-    Poller __poller = {};
-    Array[Pollable] __toRemove = {};
-    int status, refCount;
-
-    oper init() : refCount = 1 {
+  oper init() : refCount = 1 {
   }
 
-    void add(Interpreter intp){
-      np := intp.getPipe();
-      nfd := np.getFD();
-      __interpreters[nfd] = intp;
-      __clients[nfd] =
-            Client(np);
-      __poller.add(np, POLLIN);
-    }
+  void add(Interpreter intp, FileHandle fh){
+    _interpreters[fh.fd] = intp;
+    _poller.add(fh, POLLIN);
+    _poller.setEvents(fh, POLLIN);
+  }
 
-    void remove(int client_fd){
-      intp := __interpreters[client_fd];
-      np := intp.getPipe();
-      __interpreters.delete(client_fd);
-      __clients.delete(client_fd);
-      __toRemove.append(np);
-    }
+  void remove(Interpreter intp, FileHandle fh){
+    _interpreters.delete(fh.fd);
+    __toRemove.append(fh);
+  }
 
-    void remove(Interpreter intp){
-      np := intp.getPipe();
-      nfd := np.getFD();
-      __interpreters.delete(nfd);
-      __clients.delete(nfd);
-      __toRemove.append(np);
-    }
+  /// Process a single event.
+  /// If 'timeout' is not null, it is the timeout to wait for the next event.
+  void processOnce(TimeDelta timeout) {
 
-    void __processClientRead(Pollable p) {
-        client := __clients[p.getFD()];
-        if (!client.readChunk()) {
-            log.debug(FStr() `deleting client $(p.getFD())`);
-            __clients.delete(p.getFD());
-            // TODO should do a deferred close here
-            client._pipe.close();
-            __toRemove.append(p);
-        }
-    }
+    // go through the clients, change their events
+#~     for (intpItem :in _interpreters)
+#~       _poller.setEvents(intpItem.val.getFileHandles(), POLLIN);
 
-    /// Process a single event.
-    /// If 'timeout' is not null, it is the timeout to wait for the next event.
-    void processOnce(TimeDelta timeout) {
+    log.debug(FStr() `waiting for an event`);
+    result := _poller.wait(timeout);
 
-        // go through the clients, change their events
-        for (clientItem :in __clients)
-            if (clientItem.val.outQueue)
-                __poller.setEvents(clientItem.val._pipe, POLLIN | POLLOUT);
-            else
-                __poller.setEvents(clientItem.val._pipe, POLLIN);
+    log.debug(FStr() `got events: $result`);
+    log.debug(FStr() `Poller = $_poller`);
 
-        log.debug(FStr() `waiting for an event`);
-        result := __poller.wait(timeout);
-        log.debug(FStr() `got events: $result`);
-        log.debug(FStr() `Poller = $__poller`);
-        while (evt := __poller.nx()) {
-          if (POLLIN & evt.revents) {
-              log.debug(FStr() `  got client read`);
-              __processClientRead(evt.pollable);
-          } else if (POLLOUT & evt.revents) {
-              log.debug(FStr() `  got client writable, ignoring`);
-          } else if (POLLERR & evt.revents) {
-              log.debug(FStr() `  error on socket $(evt.pollable)`);
-          } else {
-              log.debug(FStr()  `  Unknown pollable = $(evt.pollable), events = \
-                                   $(evt.events), revents = $(evt.revents)`);
+    while (evt := _poller.nx()) {
+      if (POLLIN & evt.revents) {
+          log.debug(FStr() `  got client read: $(evt.pollable)`);
+          _interpreters[evt.pollable.fd].dataReady(evt.pollable);
+      } else if (POLLOUT & evt.revents) {
+          log.debug(FStr() `  got client writable, ignoring`);
+      } else if (POLLERR & evt.revents) {
+          log.debug(FStr() `  error on socket $(evt.pollable)`);
+      } else {
+          log.debug(FStr()  `  Unknown pollable = $(evt.pollable), events = \
+                               $(evt.events), revents = $(evt.revents)`);
       }
-        }
-
-        // remove pollables that we're done with.
-        if (__toRemove) {
-            for (p :in __toRemove) {
-                log.debug(FStr() `removing $p`);
-                __poller.remove(p);
-            }
-            while (__toRemove)
-                __toRemove.delete(0);
-            log.debug(FStr() `removals finished`);
-        }
     }
 
-    void run() {
-        while (true) {
-            processOnce(null);
-        }
+    // remove pollables that we're done with.
+    if (__toRemove) {
+      for (p :in __toRemove) {
+          log.debug(FStr() `removing $p`);
+          _poller.remove(p);
+      }
+      while (__toRemove)
+          __toRemove.delete(0);
+      log.debug(FStr() `removals finished`);
     }
+  }
+
+  void run() {
+    while (true) {
+        processOnce(null);
+    }
+  }
 }
 
 
