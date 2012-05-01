@@ -1,9 +1,10 @@
 import crack.cont.hashmap HashMap;
 import crack.io FStr, cerr, cout, FileHandle;
 import crack.io.readers LineReader;
-import crack.lang CString, Exception;
+import crack.lang CString, Exception, Formatter;
 import crack.net Pipe;
 import crack.process Process;
+import crack.regex escape, Regex, Match;
 import crack.runtime errno;
 import crack.strutil StringArray;
 import crack.sys env, strerror;
@@ -21,22 +22,32 @@ class IntProcess : Process {
   int getErrFD() { return _pd.stderr; }
 }
 
-const uint INTP_READY = 0,
-           INTP_BUSY = 1,
-           INTP_ERROR = 2,
-           INTP_DONE = 3;
+const int INTP_READY = 0,
+          INTP_BUSY = 1,
+          INTP_ERROR = 2,
+          INTP_DONE = 3;
+
+HashMap[String, int] statusMap = {};
+statusMap["READY"] = INTP_READY;
+statusMap["BUSY"] = INTP_BUSY;
+statusMap["ERROR"] = INTP_ERROR;
+statusMap["DONE"] = INTP_DONE;
 
 
 @abstract
 class Interpreter {
   IntProcess _process;
   StringArray _statusCmds;
+  int status = -1;
 
   @abstract
   oper init(StringArray cmd, StringArray statusCmds) : _statusCmds = statusCmds { }
 
   @abstract
   Array[FileHandle] getFileHandles();
+
+  @abstract
+  int id();
 
   @abstract
   int dataReady(FileHandle f);
@@ -46,50 +57,65 @@ class Interpreter {
 
   @abstract
   int exe(String script);
-
 }
 
 // An intepreter that spawns a subprocess and creates a pipe to read status from
 class SimpleInterpreter : Interpreter {
-  Pipe _pipe, _stdoutPipe, _stderrPipe;
-  LineReader _lineReader, _stdoutPipeLineReader, _stderrPipeLineReader;
+  Array[Pipe] pipes;
+  Array[FileHandle] _pollables;
   HashMap[int, LineReader] readers = {};
+  Regex _rx;
 
   oper init(StringArray cmd, StringArray statusCmds) :
-    Interpreter(cmd, statusCmds)
+    Interpreter(cmd, statusCmds), _rx = Regex('status:([A-Z]+).*'), pipes()
   {
-    _pipe = Pipe();
-    cerr `Opened pipe=$_pipe\n`;
-    _pipe.setNonBlocking(true);
-    _pipe.setReader();
-    _lineReader=LineReader(_pipe);
 
-    addr := _pipe.getAddr();
+    if (statusCmds.count() !=4)
+      throw Exception("Array of statusCmds must have 4 entries");
+    _statusPipe := Pipe();
+    _statusPipe.setNonBlocking(true);
+    pipes.append(_statusPipe);
+
+    addr := _statusPipe.getAddr();
     env["WHIP_WRITEFD"] = FStr() `$(addr.writefd)`;
     env["WHIP_READFD"] = FStr() `$(addr.readfd)`;
     _process = IntProcess(cmd, env);
 
-    _stdoutPipe = Pipe(int32(0), int32(_process.getOutputFD()), -1);
+    if (_process.getOutputFD() == -1){
+      throw Exception(FStr() `Unable to start interpreter $(cmd[0]): $(strerror())\n`);
+    }
+    
+    _statusPipe.setReader();
+    _statusFH := FileHandle(addr.writefd);
+    _statusFH.close(); // So we don't directly import runtime.close
+
+    _stdoutPipe := Pipe(int32(0), int32(_process.getOutputFD()), -1);
     _stdoutPipe.setReader();
     _stdoutPipe.setNonBlocking(true);
-    _stderrPipe = Pipe(int32(0), int32(_process.getErrFD()), -1);
+    pipes.append(_stdoutPipe);
+
+    _stderrPipe := Pipe(int32(0), int32(_process.getErrFD()), -1);
     _stderrPipe.setReader();
     _stderrPipe.setNonBlocking(true);
+    pipes.append(_stderrPipe);
 
-    _stdoutPipeLineReader = LineReader(_stdoutPipe);
-    _stderrPipeLineReader = LineReader(_stderrPipe);
-    readers[_pipe.getFD()] = _lineReader;
+    _statusPipeReader := LineReader(_statusPipe);
+    _stdoutPipeLineReader := LineReader(_stdoutPipe);
+    _stderrPipeLineReader := LineReader(_stderrPipe);
 
+    readers[_statusPipe.getFD()] = _statusPipeReader;
     readers[_stdoutPipe.getFD()] = _stdoutPipeLineReader;
     readers[_stderrPipe.getFD()] = _stderrPipeLineReader;
 
-    cerr `statusCmds = $_statusCmds\n`;
-
-    _process.putStdIn(_statusCmds[INTP_READY]);
+    if (_statusCmds[INTP_READY])
+      _process.putStdIn(_statusCmds[INTP_READY]);
+    
+    _pollables = Array[FileHandle]![FileHandle(addr.readfd),
+                  FileHandle(_process.getOutputFD()) ];
   }
 
   Array[FileHandle] getFileHandles(){
-    return Array[FileHandle]![_pipe, _stdoutPipe, _stderrPipe];
+    return _pollables;
   }
 
   int stop() {
@@ -97,23 +123,43 @@ class SimpleInterpreter : Interpreter {
     return 0;
   }
 
+  int id(){
+    return pipes[0].getFD();
+  }
+
   int exe(String script){
-    _process.putStdIn(_statusCmds[INTP_BUSY]);
+    status = INTP_READY;
+    if (_statusCmds[INTP_BUSY])
+      _process.putStdIn(_statusCmds[INTP_BUSY]);
     _process.putStdIn(script);
-    _process.putStdIn(_statusCmds[INTP_DONE]);
+    if (_statusCmds[INTP_DONE])
+      _process.putStdIn(_statusCmds[INTP_DONE]);
     return script.size; // TODO, get real number of bytes sent
   }
 
   int dataReady(FileHandle f){
-    int numLines=0;
+    int changes=0;
     try {
       fd := f.fd;
       lr := readers.get(fd, null);
       if (lr){
         for (lineItem :in lr){
-          cout `$fd: $lineItem`;
+          cerr `$lineItem`;
+          m := _rx.search(lineItem);
+          if (!m) {
+            continue;
+          }
+          g := m.group(1);
+          int s = -1;
+          if (g) {
+            s = statusMap.get(g, -1);
+            if (s>=0) {
+              status = s;
+              changes++;
+              break;
+            }
+          }
         }
-        numLines++;
       }
       else {
         cerr `FileHandle($fd) not found!\n`;
@@ -124,20 +170,21 @@ class SimpleInterpreter : Interpreter {
       if (err != 11)
         cerr `readline failed: $(strerror())\n`;
     }
-    return numLines;
+    return changes;
   }
 
+  void formatTo(Formatter fmt){
+    fmt `SI: $(id())`;
+  }
 }
-
-
 
 class ShellInterpreter : SimpleInterpreter {
   oper init() :
     SimpleInterpreter(StringArray!["/bin/bash", "-s"],
-                      StringArray!['echo "status: READY" >&$WHIP_WRITEFD\n',
-                                   'echo "status: BUSY" >&$WHIP_WRITEFD\n',
-                                   'echo "status: ERROR" >&$WHIP_WRITEFD\n',
-                                   'echo "status: DONE" >&$WHIP_WRITEFD\n'])
+                      StringArray!['echo "status:READY" >&$WHIP_WRITEFD\n',
+                                   'echo "status:BUSY" >&$WHIP_WRITEFD\n',
+                                   'echo "status:ERROR" >&$WHIP_WRITEFD\n',
+                                   'echo "status:DONE" >&$WHIP_WRITEFD\n'])
   { }
 }
 
@@ -153,10 +200,10 @@ begin
 rescue
   STDERR.write("Unable to open __whip_status_io\n")
 end
-__whip_status_io.syswrite("status: READY ruby\n")
+__whip_status_io.syswrite("status:READY ruby\n")
 ',
-                                   '__whip_status_io.syswrite("status: BUSY ruby\\n")\nbegin\n',
-                                   '__whip_status_io.syswrite("status: ERROR ruby\\n")\n',
-                                   'end while false\n__whip_status_io.syswrite("status: DONE ruby\\n")\n'])
+                                   '__whip_status_io.syswrite("status:BUSY ruby\\n")\nbegin\n',
+                                   '__whip_status_io.syswrite("status:ERROR ruby\\n")\n',
+                                   'end while false\n__whip_status_io.syswrite("status:DONE ruby\\n")\n'])
   { }
 }

@@ -3,9 +3,6 @@
 
 // Conrad Steenberg <conrad.steenberg@gmail.com>
 
-/// HTTP Server Framework.  Usage synopsis:
-/// Copyright 2011 Google Inc.
-
 import crack.ascii strip;
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
@@ -36,15 +33,25 @@ class InterpreterContainer {
     _poller.setEvents(fh, POLLIN);
   }
 
+  void add(Interpreter intp, Array[FileHandle] fhs){
+    for (fh : in fhs) {
+      _interpreters[fh.fd] = intp;
+      _poller.add(fh, POLLIN);
+      _poller.setEvents(fh, POLLIN);
+    }
+  }
+
   void remove(Interpreter intp, FileHandle fh){
+    log.debug(FStr() `InterpreterContainer::remove($(fh.fd))`);
     _interpreters.delete(fh.fd);
     __toRemove.append(fh);
   }
 
   /// Process a single event.
   /// If 'timeout' is not null, it is the timeout to wait for the next event.
-  void processOnce(TimeDelta timeout) {
-
+  HashMap[int, Interpreter] processOnce(TimeDelta timeout) {
+    HashMap[int, Interpreter] changed = {};
+    Interpreter evIntp;
     // go through the clients, change their events
 #~     for (intpItem :in _interpreters)
 #~       _poller.setEvents(intpItem.val.getFileHandles(), POLLIN);
@@ -54,11 +61,13 @@ class InterpreterContainer {
 
     log.debug(FStr() `got events: $result`);
     log.debug(FStr() `Poller = $_poller`);
+    log.debug(FStr() `Intps = $_interpreters`);
 
     while (evt := _poller.nx()) {
       if (POLLIN & evt.revents) {
           log.debug(FStr() `  got client read: $(evt.pollable)`);
-          _interpreters[evt.pollable.fd].dataReady(evt.pollable);
+          evIntp = _interpreters[evt.pollable.fd];
+          if (evIntp.dataReady(evt.pollable) > 0) changed[evIntp.id()] = evIntp;
       } else if (POLLOUT & evt.revents) {
           log.debug(FStr() `  got client writable, ignoring`);
       } else if (POLLERR & evt.revents) {
@@ -79,6 +88,7 @@ class InterpreterContainer {
           __toRemove.delete(0);
       log.debug(FStr() `removals finished`);
     }
+    return changed;
   }
 
   void run() {

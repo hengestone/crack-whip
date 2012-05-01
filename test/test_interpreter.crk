@@ -1,27 +1,30 @@
 // Test for Entity class
-import crack.strutil StringArray;
+import crack.io FStr, cerr;
 import crack.net Poller, POLLIN, POLLOUT;
-import whip.interpreter ShellInterpreter, RubyInterpreter;
-import whip.sockserver InterpreterContainer;
+import crack.strutil StringArray;
 import crack.time TimeDelta, seconds;
-import crack.io FStr;
+import whip.interpreter ShellInterpreter, RubyInterpreter, INTP_DONE;
+import whip.sockserver InterpreterContainer;
 
 server := InterpreterContainer();
 #~ ShellInterpreter intp = {};
 #~ server.add(intp, intp.getFileHandles()[0]);
 RubyInterpreter rintp = {};
-server.add(rintp, rintp.getFileHandles()[0]);
-server.add(rintp, rintp.getFileHandles()[2]);
+server.add(rintp, rintp.getFileHandles());
+
 
 int i = 0;
-delay := seconds(10);
+delay := seconds(1);
 
 while (i<10){
 #~   if (intp.exe(FStr() `echo hello $(i)\n`) == -1)
 #~     break;
-  line := "puts('hello ruby 0')\n";
+  line := "puts('hello ruby 0')\n"; // This sets rintp.status = READY
   if (rintp.exe(line) == -1)
     break;
   i++;
-  server.processOnce(delay);
+  while (rintp.status != INTP_DONE) {
+    changes := server.processOnce(delay);
+    cerr `$i: status = $(rintp.status), changes = $changes\n`;
+  }
 }
