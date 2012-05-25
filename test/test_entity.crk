@@ -4,7 +4,7 @@ import crack.runtime usecs;
 import crack.io cout;
 
 fe := FileEntity(null, "/home/conrad/Download/crack-language/whip/testdir/test");
-ts := usecs();
+int64 ts = usecs();
 fe.updateStatus(ts);
 
 cout `fe = $fe, ts = $ts\n`;

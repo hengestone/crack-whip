@@ -3,24 +3,27 @@ import crack.io FStr, cerr;
 import crack.net Poller, POLLIN, POLLOUT;
 import crack.strutil StringArray;
 import crack.time TimeDelta, seconds;
-import whip.interpreter ShellInterpreter, RubyInterpreter, INTP_DONE;
+import crack.runtime exit;
+import whip.interpreter ShellInterpreter, RubyInterpreter, INTP_DONE, INTP_READY;
 import whip.sockserver InterpreterContainer;
 
 server := InterpreterContainer();
+delay := seconds(1);
+
 #~ ShellInterpreter intp = {};
 #~ server.add(intp, intp.getFileHandles()[0]);
 RubyInterpreter rintp = {};
 server.add(rintp, rintp.getFileHandles());
 
+while (rintp.status != INTP_READY) {
+  changes := server.processOnce(delay);
+  cerr `startup: status = $(rintp.status), changes = $changes\n`;
+}
 
 int i = 0;
-delay := seconds(1);
 
 while (i<10){
-#~   if (intp.exe(FStr() `echo hello $(i)\n`) == -1)
-#~     break;
-  line := "puts('hello ruby 0')\n"; // This sets rintp.status = READY
-  if (rintp.exe(line) == -1)
+  if (rintp.exe(FStr() `puts('hello ruby $i' )\n`) == -1)
     break;
   i++;
   while (rintp.status != INTP_DONE) {

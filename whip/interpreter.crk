@@ -107,8 +107,9 @@ class SimpleInterpreter : Interpreter {
     readers[_stdoutPipe.getFD()] = _stdoutPipeLineReader;
     readers[_stderrPipe.getFD()] = _stderrPipeLineReader;
 
-    if (_statusCmds[INTP_READY])
+    if (_statusCmds[INTP_READY]) {
       _process.putStdIn(_statusCmds[INTP_READY]);
+    }
     
     _pollables = Array[FileHandle]![FileHandle(addr.readfd),
                   FileHandle(_process.getOutputFD()) ];
@@ -138,6 +139,7 @@ class SimpleInterpreter : Interpreter {
   }
 
   int dataReady(FileHandle f){
+    cerr `dataReady\n`;
     int changes=0;
     try {
       fd := f.fd;
