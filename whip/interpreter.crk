@@ -1,14 +1,15 @@
+import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
 import crack.io FStr, cerr, cout, FileHandle;
 import crack.io.readers LineReader;
 import crack.lang CString, Exception, Formatter;
+import crack.logger cerrLogger, Logger;
 import crack.net Pipe;
 import crack.process Process;
 import crack.regex escape, Regex, Match;
 import crack.runtime errno;
 import crack.strutil StringArray;
 import crack.sys env, strerror;
-import crack.cont.array Array;
 import whip.entity Entity;
 
 // Interpreter is a client that connects to a Unix socket, then forks to make the
@@ -22,26 +23,40 @@ class IntProcess : Process {
   int getErrFD() { return _pd.stderr; }
 }
 
-const int INTP_READY = 0,
-          INTP_BUSY = 1,
-          INTP_ERROR = 2,
-          INTP_DONE = 3;
+const int INTP_NEW = 0,
+          INTP_READY = 1,
+          INTP_SUBMIT = 2,
+          INTP_BUSY = 3,
+          INTP_ERROR = 4,
+          INTP_DONE = 5;
 
 HashMap[String, int] statusMap = {};
 statusMap["READY"] = INTP_READY;
 statusMap["BUSY"] = INTP_BUSY;
 statusMap["ERROR"] = INTP_ERROR;
 statusMap["DONE"] = INTP_DONE;
+uint INF = 1<<32 -1;
 
 
 @abstract
 class Interpreter {
   IntProcess _process;
-  StringArray _statusCmds;
+  Logger log;
+  StringArray _startCmds, _statusCmds;
   int status = -1;
+  uint _maxCmds = INF; // Infinite, deliberately wraps around
+  uint _finishedCmds = 0;
 
   @abstract
-  oper init(StringArray cmd, StringArray statusCmds) : _statusCmds = statusCmds { }
+  oper init(StringArray cmd, StringArray statusCmds) :
+        _startCmds = cmd, _statusCmds = statusCmds,
+        log = cerrLogger
+  { }
+
+  oper init(StringArray cmd, StringArray statusCmds, Logger newlog) :
+        _startCmds = cmd, _statusCmds = statusCmds, log = newlog
+  { }
+
 
   @abstract
   Array[FileHandle] getFileHandles();
@@ -50,28 +65,57 @@ class Interpreter {
   int id();
 
   @abstract
-  int dataReady(FileHandle f);
+  Array[int] dataReady(FileHandle f);
+
+  @abstract
+  int start();
+
+  @abstract
+  int restart();
+
+  @abstract
+  int onReady();
 
   @abstract
   int stop();
 
   @abstract
   int exe(String script);
+
+  int setMaxCmds(uint newMaxCmds){
+    _maxCmds = newMaxCmds;
+    if (newMaxCmds <= _finishedCmds){
+      return restart()
+    }
+
+    return INTP_READY;
+  }
 }
 
 // An intepreter that spawns a subprocess and creates a pipe to read status from
 class SimpleInterpreter : Interpreter {
   Array[Pipe] pipes;
   Array[FileHandle] _pollables;
-  HashMap[int, LineReader] readers = {};
+  HashMap[int, LineReader] _readers = {};
   Regex _rx;
+  int _statusFD;
 
   oper init(StringArray cmd, StringArray statusCmds) :
     Interpreter(cmd, statusCmds), _rx = Regex('status:([A-Z]+).*'), pipes()
   {
+    status = INTP_NEW;
+  }
 
-    if (statusCmds.count() !=4)
-      throw Exception("Array of statusCmds must have 4 entries");
+  oper init(StringArray cmd, StringArray statusCmds, Logger newlog) :
+    Interpreter(cmd, statusCmds, newlog), _rx = Regex('status:([A-Z]+).*'), pipes()
+  {
+    status = INTP_NEW;
+  }
+
+  int start(){
+    if (status != INTP_NEW) return INTP_ERROR;
+    if (_statusCmds.count() !=6)
+      throw Exception("Array of statusCmds must have 6 entries");
     _statusPipe := Pipe();
     _statusPipe.setNonBlocking(true);
     pipes.append(_statusPipe);
@@ -79,10 +123,11 @@ class SimpleInterpreter : Interpreter {
     addr := _statusPipe.getAddr();
     env["WHIP_WRITEFD"] = FStr() `$(addr.writefd)`;
     env["WHIP_READFD"] = FStr() `$(addr.readfd)`;
-    _process = IntProcess(cmd, env);
+    _statusFD = addr.readfd;
+    _process = IntProcess(_startCmds, env);
 
     if (_process.getOutputFD() == -1){
-      throw Exception(FStr() `Unable to start interpreter $(cmd[0]): $(strerror())\n`);
+      throw Exception(FStr() `Unable to start interpreter $(_startCmds[0]): $(strerror())\n`);
     }
     
     _statusPipe.setReader();
@@ -103,16 +148,19 @@ class SimpleInterpreter : Interpreter {
     _stdoutPipeLineReader := LineReader(_stdoutPipe);
     _stderrPipeLineReader := LineReader(_stderrPipe);
 
-    readers[_statusPipe.getFD()] = _statusPipeReader;
-    readers[_stdoutPipe.getFD()] = _stdoutPipeLineReader;
-    readers[_stderrPipe.getFD()] = _stderrPipeLineReader;
+    _readers[_statusPipe.getFD()] = _statusPipeReader;
+    _readers[_stdoutPipe.getFD()] = _stdoutPipeLineReader;
+    _readers[_stderrPipe.getFD()] = _stderrPipeLineReader;
 
-    if (_statusCmds[INTP_READY]) {
-      _process.putStdIn(_statusCmds[INTP_READY]);
+    if (_statusCmds[INTP_NEW]) {
+      _process.putStdIn(_statusCmds[INTP_NEW]); // Initialize interpreter
     }
     
-    _pollables = Array[FileHandle]![FileHandle(addr.readfd),
-                  FileHandle(_process.getOutputFD()) ];
+    _pollables = Array[FileHandle]![FileHandle(addr.readfd)];
+#~                   FileHandle(_process.getOutputFD()) ];
+
+    _finishedCmds = 0;
+    return INTP_SUBMIT;
   }
 
   Array[FileHandle] getFileHandles(){
@@ -121,32 +169,59 @@ class SimpleInterpreter : Interpreter {
 
   int stop() {
     _process.close();
-    return 0;
+    _readers.clear();
+    _pollables.clear();
+    status = INTP_NEW;
+    log.debug("*** Interpreter STOPPED ***");
+    return status;
+  }
+
+  int restart(){
+    stop();
+    status = INTP_NEW;
+    if (start() != INTP_SUBMIT) throw Exception("Unable to restart interpreter");
+    return status;
   }
 
   int id(){
     return pipes[0].getFD();
   }
 
+  int onReady(){
+    _finishedCmds++;
+    if (_finishedCmds >= _maxCmds){
+      stop();
+      status = INTP_NEW;
+    }
+    return status;
+  }
+
   int exe(String script){
-    status = INTP_READY;
+    if (status == INTP_NEW && start() != INTP_SUBMIT)
+      return INTP_ERROR;
+    status = INTP_SUBMIT;
     if (_statusCmds[INTP_BUSY])
       _process.putStdIn(_statusCmds[INTP_BUSY]);
     _process.putStdIn(script);
     if (_statusCmds[INTP_DONE])
       _process.putStdIn(_statusCmds[INTP_DONE]);
+    if (_statusCmds[INTP_READY])
+      _process.putStdIn(_statusCmds[INTP_READY]);
     return script.size; // TODO, get real number of bytes sent
   }
 
-  int dataReady(FileHandle f){
-    cerr `dataReady\n`;
-    int changes=0;
+
+  Array[int] dataReady(FileHandle f){
+    Array[int] changes = {};
+    oldStatus := status;
+
     try {
       fd := f.fd;
-      lr := readers.get(fd, null);
+      lr := _readers.get(fd, null);
       if (lr){
         for (lineItem :in lr){
-          cerr `$lineItem`;
+          log.debug(lineItem);
+          if (fd != _statusFD) continue; // Don't get confused by output from wrong fd
           m := _rx.search(lineItem);
           if (!m) {
             continue;
@@ -156,21 +231,23 @@ class SimpleInterpreter : Interpreter {
           if (g) {
             s = statusMap.get(g, -1);
             if (s>=0) {
+              oldStatus = status;
               status = s;
-              changes++;
-              break;
+              changes.append(s);
             }
           }
         }
+        if (status == INTP_READY && oldStatus == INTP_DONE)
+          onReady();
       }
       else {
-        cerr `FileHandle($fd) not found!\n`;
+        log.error(FStr() `FileHandle($fd) not found!\n`);
       }
     }
     catch(Exception ex){
       err := errno();
       if (err != 11)
-        cerr `readline failed: $(strerror())\n`;
+        log.error(FStr() `readline failed: $(strerror())`);
     }
     return changes;
   }
@@ -180,20 +257,16 @@ class SimpleInterpreter : Interpreter {
   }
 }
 
-class ShellInterpreter : SimpleInterpreter {
-  oper init() :
-    SimpleInterpreter(StringArray!["/bin/bash", "-s"],
-                      StringArray!['echo "status:READY" >&$WHIP_WRITEFD\n',
-                                   'echo "status:BUSY" >&$WHIP_WRITEFD\n',
-                                   'echo "status:ERROR" >&$WHIP_WRITEFD\n',
-                                   'echo "status:DONE" >&$WHIP_WRITEFD\n'])
-  { }
-}
+StringArray _bashInit =   ["/bin/bash", "-s"],
+            _bashStatus = ['echo "status:READY" >&$WHIP_WRITEFD\n',
+                           'echo "status:READY" >&$WHIP_WRITEFD\n',
+                           null,
+                           'echo "status:BUSY" >&$WHIP_WRITEFD\n',
+                           'echo "status:ERROR" >&$WHIP_WRITEFD\n',
+                           'echo "status:DONE" >&$WHIP_WRITEFD\n'];
 
-class RubyInterpreter : SimpleInterpreter {
-  oper init() :
-    SimpleInterpreter(StringArray!["/usr/bin/irb", "--noprompt", "--noreadline", "-f"],
-                      StringArray![
+StringArray _rubyInit =   ["/usr/bin/irb", "--noprompt", "--noreadline", "-f"],
+            _rubyStatus = [
 r'IO.open(ENV["WHIP_READFD"].to_i).close()
 __whip_status_io = nil
 begin
@@ -204,8 +277,28 @@ rescue
 end
 __whip_status_io.syswrite("status:READY ruby\n")
 ',
-                                   '__whip_status_io.syswrite("status:BUSY ruby\\n")\nbegin\n',
-                                   '__whip_status_io.syswrite("status:ERROR ruby\\n")\n',
-                                   'end while false\n__whip_status_io.syswrite("status:DONE ruby\\n")\n'])
+                           '__whip_status_io.syswrite("status:READY ruby\\n")\n',
+                            null,
+                           '__whip_status_io.syswrite("status:BUSY ruby\\n")\nbegin\n',
+                           '__whip_status_io.syswrite("status:ERROR ruby\\n")\n',
+                           'end while false\n__whip_status_io.syswrite("status:DONE ruby\\n")\n'];
+
+class ShellInterpreter : SimpleInterpreter {
+  oper init() :
+    SimpleInterpreter(_bashInit, _bashStatus)
+  { }
+
+  oper init(Logger newlog) :
+    SimpleInterpreter(_bashInit, _bashStatus, newlog)
+  { }
+}
+
+class RubyInterpreter : SimpleInterpreter {
+  oper init() :
+    SimpleInterpreter(_rubyInit, _rubyStatus)
+  { }
+
+  oper init(Logger newlog) :
+    SimpleInterpreter(_rubyInit, _rubyStatus, newlog)
   { }
 }

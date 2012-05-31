@@ -6,45 +6,95 @@
 import crack.ascii strip;
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap;
-import crack.lang SystemError;
 import crack.io cerr, StandardFormatter, StringFormatter, Writer, FStr, FileHandle;
-import crack.lang AppendBuffer, Buffer, ManagedBuffer, WriteBuffer, CString;
+import crack.lang AppendBuffer, Buffer, ManagedBuffer, WriteBuffer, CString,
+                  AssertionError, InvalidArgumentError;
+import crack.lang SystemError;
+import crack.logger Logger, DEBUG, WARN, INFO, ERROR, FATAL, cerrLogger;
 import crack.net Poller, POLLIN, POLLOUT, POLLERR, POLLHUP;
 import crack.sys strerror;
 import crack.time TimeDelta;
-import crack.logger Logger, DEBUG, WARN, INFO, ERROR, FATAL;
+@import crack.ann assert;
 import whip.interpreter Interpreter;
 
 /// An Interpreter Server Container
 class InterpreterContainer {
-  Logger log = {cerr, DEBUG, "progname datetime severity msg"};
+  Logger log;
 
   HashMap[int, Interpreter] _interpreters = {};
   Poller _poller = {};
+  HashMap[Interpreter, int] __noFileHandles = {};
+  HashMap[FileHandle, Interpreter] _watchedFileHandles = {};
+  HashMap[Interpreter, HashMap[FileHandle, int]] _watchedInterpreters = {};
   Array[FileHandle] __toRemove = {};
   int status, refCount;
 
-  oper init() : refCount = 1 {
+  oper init() : refCount = 1, log = cerrLogger {
   }
 
-  void add(Interpreter intp, FileHandle fh){
-    _interpreters[fh.fd] = intp;
+  oper init(Logger newlog) : refCount = 1, log = newlog {
+  }
+
+  void __addFileHandle(FileHandle fh){
     _poller.add(fh, POLLIN);
     _poller.setEvents(fh, POLLIN);
   }
 
   void add(Interpreter intp, Array[FileHandle] fhs){
-    for (fh : in fhs) {
-      _interpreters[fh.fd] = intp;
-      _poller.add(fh, POLLIN);
-      _poller.setEvents(fh, POLLIN);
+    if (_watchedInterpreters.get(intp, null))
+      throw InvalidArgumentError(FStr() `Interpreter $intp already watched. Hint: remove first then add`);
+    HashMap[FileHandle, int] fhMap = {};
+    for (fh :in fhs) {
+      __addFileHandle(fh);
+      _watchedFileHandles[fh] = intp;
+      fhMap[fh] = fh.fd;
+    }
+    _watchedInterpreters[intp] = fhMap;
+    if (fhMap.count() == 0) __noFileHandles[intp] = 1;
+  }
+
+  void add(Interpreter intp){
+    fhs := intp.getFileHandles();
+    add(intp, fhs);
+  }
+
+  void remove(Interpreter intp){
+    fhMap := _watchedInterpreters.get(intp, null);
+    if (!fhMap) throw InvalidArgumentError(FStr() `Interpreter $intp not watched`);
+    _watchedInterpreters.delete(intp);
+    for (fhItem :in fhMap) {
+      _poller.remove(fhItem.key);
+      _watchedFileHandles.delete(fhItem.key);
     }
   }
 
-  void remove(Interpreter intp, FileHandle fh){
-    log.debug(FStr() `InterpreterContainer::remove($(fh.fd))`);
-    _interpreters.delete(fh.fd);
-    __toRemove.append(fh);
+  int __checkNew(){
+
+    // Check all interpreters to see if they still have valid pollables
+    for (intpItem :in _watchedInterpreters){
+      if (!intpItem.key.getFileHandles() &&
+          !__noFileHandles.contains(intpItem.key))
+          __noFileHandles[intpItem.key] = 1;
+          log.debug(FStr() `__checkNew: added $(intpItem.key) to __noFileHandles`);
+    }
+
+    if (!__noFileHandles) return 0;
+
+    Array[Interpreter] removeIntp = {};
+    int i=0;
+    for (intpItem :in __noFileHandles){
+      if (_watchedInterpreters.contains(intpItem.key)){
+        removeIntp.append(intpItem.key);
+      }
+      else {
+        fhs := intpItem.key.getFileHandles();
+        if (fhs) {
+          add(intpItem.key, fhs);
+          i++;
+        }
+      }
+    }
+    return i;
   }
 
   /// Process a single event.
@@ -52,48 +102,50 @@ class InterpreterContainer {
   HashMap[int, Interpreter] processOnce(TimeDelta timeout) {
     HashMap[int, Interpreter] changed = {};
     Interpreter evIntp;
-    // go through the clients, change their events
-#~     for (intpItem :in _interpreters)
-#~       _poller.setEvents(intpItem.val.getFileHandles(), POLLIN);
-
     log.debug(FStr() `waiting for an event`);
     result := _poller.wait(timeout);
 
     log.debug(FStr() `got events: $result`);
     log.debug(FStr() `Poller = $_poller`);
-    log.debug(FStr() `Intps = $_interpreters`);
+    log.debug(FStr() `Intps = $_watchedInterpreters`);
 
     while (evt := _poller.nx()) {
       if (POLLIN & evt.revents) {
           log.debug(FStr() `  got client read: $(evt.pollable)`);
           evIntp = _interpreters[evt.pollable.fd];
-          if (evIntp.dataReady(evt.pollable) > 0) changed[evIntp.id()] = evIntp;
+          if (evIntp.dataReady(evt.pollable).count() > 0) changed[evIntp.id()] = evIntp;
       } else if (POLLOUT & evt.revents) {
           log.debug(FStr() `  got client writable, ignoring`);
       } else if (POLLERR & evt.revents) {
           log.debug(FStr() `  error on socket $(evt.pollable)`);
       } else {
-          log.debug(FStr()  `  Unknown pollable = $(evt.pollable), events = \
-                               $(evt.events), revents = $(evt.revents)`);
+        log.debug(FStr()
+          `  Unknown pollable = $(evt.pollable), events = $(evt.events), revents = $(evt.revents)`);
+        __toRemove.append(evt.pollable);
       }
     }
 
-    // remove pollables that we're done with.
+    // remove pollables that were invalid
     if (__toRemove) {
       for (p :in __toRemove) {
-          log.debug(FStr() `removing $p`);
-          _poller.remove(p);
+          log.debug(FStr() `removing pollable $p`);
+          intp := _watchedFileHandles.get(p, null);
+          if (intp){
+            if (_watchedInterpreters.contains(intp))
+              remove(intp);
+            __noFileHandles[intp] = 1;
+          }
       }
-      while (__toRemove)
-          __toRemove.delete(0);
+      __toRemove.clear();
       log.debug(FStr() `removals finished`);
     }
+
     return changed;
   }
 
   void run() {
     while (true) {
-        processOnce(null);
+        changed := processOnce(null);
     }
   }
 }

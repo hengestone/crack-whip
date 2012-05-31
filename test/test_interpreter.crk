@@ -1,33 +1,50 @@
 // Test for Entity class
 import crack.io FStr, cerr;
+import crack.logger cerrLogger;
 import crack.net Poller, POLLIN, POLLOUT;
+import crack.runtime exit;
 import crack.strutil StringArray;
 import crack.time TimeDelta, seconds;
-import crack.runtime exit;
-import whip.interpreter ShellInterpreter, RubyInterpreter, INTP_DONE, INTP_READY;
+import whip.interpreter ShellInterpreter, RubyInterpreter, INTP_DONE,
+                        INTP_BUSY, INTP_READY, INTP_NEW, Interpreter;
 import whip.sockserver InterpreterContainer;
 
-server := InterpreterContainer();
+
+bool waitForStatus(InterpreterContainer server, Interpreter intp, int status, TimeDelta delay){
+
+  while (intp.status != status) {
+    changes := server.processOnce(delay);
+    cerr `startup: status = $(intp.status), changes = $changes\n`;
+  }
+  return true;
+}
+
+server := InterpreterContainer(cerrLogger);
 delay := seconds(1);
 
 #~ ShellInterpreter intp = {};
 #~ server.add(intp, intp.getFileHandles()[0]);
-RubyInterpreter rintp = {};
-server.add(rintp, rintp.getFileHandles());
+RubyInterpreter rintp = {cerrLogger};
+rintp.setMaxCmds(5);
+rintp.start();
+server.add(rintp);
 
-while (rintp.status != INTP_READY) {
-  changes := server.processOnce(delay);
-  cerr `startup: status = $(rintp.status), changes = $changes\n`;
-}
-
+// Sleepy wait for server to become ready
+waitForStatus(server, rintp, INTP_READY, delay);
+int oldstatus = rintp.status;
 int i = 0;
 
 while (i<10){
-  if (rintp.exe(FStr() `puts('hello ruby $i' )\n`) == -1)
+  oldstatus = rintp.status;
+  if (rintp.exe(FStr() `puts('hello ruby $(i)' )\n`) == -1)
     break;
-  i++;
-  while (rintp.status != INTP_DONE) {
+  if (oldstatus == INTP_NEW){
+    cerr `Waiting for startup...\n`;
+    waitForStatus(server, rintp, INTP_BUSY, delay);
+  }
+  while (rintp.status != INTP_READY && rintp.status != INTP_NEW) {
     changes := server.processOnce(delay);
     cerr `$i: status = $(rintp.status), changes = $changes\n`;
   }
+  i++;
 }
