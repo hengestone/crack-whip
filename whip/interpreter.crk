@@ -10,7 +10,7 @@ import crack.regex escape, Regex, Match;
 import crack.runtime errno;
 import crack.strutil StringArray;
 import crack.sys env, strerror;
-import whip.entity Entity;
+#~ import whip.entity Entity;
 
 // Interpreter is a client that connects to a Unix socket, then forks to make the
 // socket available to an interpreter process (bash, ruby, python etc)
@@ -28,7 +28,8 @@ const int INTP_NEW = 0,
           INTP_SUBMIT = 2,
           INTP_BUSY = 3,
           INTP_ERROR = 4,
-          INTP_DONE = 5;
+          INTP_DONE = 5,
+          INTP_REQUEST_STOP = 6;
 
 HashMap[String, int] statusMap = {};
 statusMap["READY"] = INTP_READY;
@@ -53,6 +54,7 @@ class Interpreter {
         log = cerrLogger
   { }
 
+  @abstract
   oper init(StringArray cmd, StringArray statusCmds, Logger newlog) :
         _startCmds = cmd, _statusCmds = statusCmds, log = newlog
   { }
@@ -61,8 +63,9 @@ class Interpreter {
   @abstract
   Array[FileHandle] getFileHandles();
 
-  @abstract
-  int id();
+  int id(){
+    return _process.getPid();
+  }
 
   @abstract
   Array[int] dataReady(FileHandle f);
@@ -94,22 +97,30 @@ class Interpreter {
 
 // An intepreter that spawns a subprocess and creates a pipe to read status from
 class SimpleInterpreter : Interpreter {
-  Array[Pipe] pipes;
+  Array[Pipe] _pipes;
   Array[FileHandle] _pollables;
-  HashMap[int, LineReader] _readers = {};
+  HashMap[int, LineReader] _readers;
   Regex _rx;
   int _statusFD;
 
+  void _initRefs(){
+    _pipes = Array[Pipe]();
+    _pollables = Array[FileHandle]();
+    _readers = HashMap[int, LineReader]();
+  }
+
   oper init(StringArray cmd, StringArray statusCmds) :
-    Interpreter(cmd, statusCmds), _rx = Regex('status:([A-Z]+).*'), pipes()
+    Interpreter(cmd, statusCmds), _rx = Regex('status:([A-Z]+).*')
   {
     status = INTP_NEW;
+    _initRefs();
   }
 
   oper init(StringArray cmd, StringArray statusCmds, Logger newlog) :
-    Interpreter(cmd, statusCmds, newlog), _rx = Regex('status:([A-Z]+).*'), pipes()
+    Interpreter(cmd, statusCmds, newlog), _rx = Regex('status:([A-Z]+).*')
   {
     status = INTP_NEW;
+    _initRefs();
   }
 
   int start(){
@@ -118,7 +129,7 @@ class SimpleInterpreter : Interpreter {
       throw Exception("Array of statusCmds must have 6 entries");
     _statusPipe := Pipe();
     _statusPipe.setNonBlocking(true);
-    pipes.append(_statusPipe);
+    _pipes.append(_statusPipe);
 
     addr := _statusPipe.getAddr();
     env["WHIP_WRITEFD"] = FStr() `$(addr.writefd)`;
@@ -137,12 +148,12 @@ class SimpleInterpreter : Interpreter {
     _stdoutPipe := Pipe(int32(0), int32(_process.getOutputFD()), -1);
     _stdoutPipe.setReader();
     _stdoutPipe.setNonBlocking(true);
-    pipes.append(_stdoutPipe);
+    _pipes.append(_stdoutPipe);
 
     _stderrPipe := Pipe(int32(0), int32(_process.getErrFD()), -1);
     _stderrPipe.setReader();
     _stderrPipe.setNonBlocking(true);
-    pipes.append(_stderrPipe);
+    _pipes.append(_stderrPipe);
 
     _statusPipeReader := LineReader(_statusPipe);
     _stdoutPipeLineReader := LineReader(_stdoutPipe);
@@ -164,13 +175,14 @@ class SimpleInterpreter : Interpreter {
   }
 
   Array[FileHandle] getFileHandles(){
+    log.debug(FStr() `getFileHandles: _pollables=$_pollables`);
     return _pollables;
   }
 
   int stop() {
-    _process.close();
-    _readers.clear();
-    _pollables.clear();
+    if (_process.isRunning())
+      _process.close();
+    _initRefs();
     status = INTP_NEW;
     log.debug("*** Interpreter STOPPED ***");
     return status;
@@ -183,15 +195,10 @@ class SimpleInterpreter : Interpreter {
     return status;
   }
 
-  int id(){
-    return pipes[0].getFD();
-  }
-
   int onReady(){
     _finishedCmds++;
     if (_finishedCmds >= _maxCmds){
-      stop();
-      status = INTP_NEW;
+      status = INTP_REQUEST_STOP;
     }
     return status;
   }
@@ -242,6 +249,7 @@ class SimpleInterpreter : Interpreter {
       }
       else {
         log.error(FStr() `FileHandle($fd) not found!\n`);
+        return null;
       }
     }
     catch(Exception ex){
@@ -253,7 +261,7 @@ class SimpleInterpreter : Interpreter {
   }
 
   void formatTo(Formatter fmt){
-    fmt `SI: $(id())`;
+    fmt `INTP($(id()))`;
   }
 }
 

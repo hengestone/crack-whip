@@ -1,6 +1,6 @@
 // Test for Entity class
 import crack.io FStr, cerr;
-import crack.logger cerrLogger;
+import crack.logger cerrLogger, DEBUG, ERROR;
 import crack.net Poller, POLLIN, POLLOUT;
 import crack.runtime exit;
 import crack.strutil StringArray;
@@ -14,11 +14,13 @@ bool waitForStatus(InterpreterContainer server, Interpreter intp, int status, Ti
 
   while (intp.status != status) {
     changes := server.processOnce(delay);
-    cerr `startup: status = $(intp.status), changes = $changes\n`;
+    cerrLogger.debug(FStr() `startup: status = $(intp.status), changes = $changes`);
   }
   return true;
 }
 
+cerrLogger.setLevel(ERROR);
+cerrLogger.setNamedFields("progname datetime severity msg");
 server := InterpreterContainer(cerrLogger);
 delay := seconds(1);
 
@@ -34,17 +36,18 @@ waitForStatus(server, rintp, INTP_READY, delay);
 int oldstatus = rintp.status;
 int i = 0;
 
-while (i<10){
-  oldstatus = rintp.status;
+while (i<11){
+  if (rintp.status == INTP_NEW){
+    rintp.start();
+    cerrLogger.debug("Waiting for startup...");
+    waitForStatus(server, rintp, INTP_READY, delay);
+  }
+
   if (rintp.exe(FStr() `puts('hello ruby $(i)' )\n`) == -1)
     break;
-  if (oldstatus == INTP_NEW){
-    cerr `Waiting for startup...\n`;
-    waitForStatus(server, rintp, INTP_BUSY, delay);
-  }
   while (rintp.status != INTP_READY && rintp.status != INTP_NEW) {
     changes := server.processOnce(delay);
-    cerr `$i: status = $(rintp.status), changes = $changes\n`;
+    cerrLogger.debug(FStr() `$i: status = $(rintp.status), changes = $changes`);
   }
   i++;
 }

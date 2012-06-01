@@ -15,13 +15,12 @@ import crack.net Poller, POLLIN, POLLOUT, POLLERR, POLLHUP;
 import crack.sys strerror;
 import crack.time TimeDelta;
 @import crack.ann assert;
-import whip.interpreter Interpreter;
+import whip.interpreter Interpreter, INTP_NEW, INTP_REQUEST_STOP;
 
 /// An Interpreter Server Container
 class InterpreterContainer {
   Logger log;
 
-  HashMap[int, Interpreter] _interpreters = {};
   Poller _poller = {};
   HashMap[Interpreter, int] __noFileHandles = {};
   HashMap[FileHandle, Interpreter] _watchedFileHandles = {};
@@ -72,10 +71,12 @@ class InterpreterContainer {
 
     // Check all interpreters to see if they still have valid pollables
     for (intpItem :in _watchedInterpreters){
-      if (!intpItem.key.getFileHandles() &&
-          !__noFileHandles.contains(intpItem.key))
+      p := intpItem.key.getFileHandles();
+      log.debug(FStr() `$p, count=$(p.count())`); 
+      if (p.count() == 0){
           __noFileHandles[intpItem.key] = 1;
           log.debug(FStr() `__checkNew: added $(intpItem.key) to __noFileHandles`);
+      }
     }
 
     if (!__noFileHandles) return 0;
@@ -89,6 +90,7 @@ class InterpreterContainer {
       else {
         fhs := intpItem.key.getFileHandles();
         if (fhs) {
+          log.debug(FStr() `Adding interpreter $(intpItem.key): $fhs`);
           add(intpItem.key, fhs);
           i++;
         }
@@ -100,6 +102,7 @@ class InterpreterContainer {
   /// Process a single event.
   /// If 'timeout' is not null, it is the timeout to wait for the next event.
   HashMap[int, Interpreter] processOnce(TimeDelta timeout) {
+    __checkNew();
     HashMap[int, Interpreter] changed = {};
     Interpreter evIntp;
     log.debug(FStr() `waiting for an event`);
@@ -112,8 +115,10 @@ class InterpreterContainer {
     while (evt := _poller.nx()) {
       if (POLLIN & evt.revents) {
           log.debug(FStr() `  got client read: $(evt.pollable)`);
-          evIntp = _interpreters[evt.pollable.fd];
+          evIntp = _watchedFileHandles[evt.pollable];
           if (evIntp.dataReady(evt.pollable).count() > 0) changed[evIntp.id()] = evIntp;
+          if (evIntp.status == INTP_REQUEST_STOP) // to stop
+            __toRemove.append(evt.pollable);
       } else if (POLLOUT & evt.revents) {
           log.debug(FStr() `  got client writable, ignoring`);
       } else if (POLLERR & evt.revents) {
@@ -127,16 +132,23 @@ class InterpreterContainer {
 
     // remove pollables that were invalid
     if (__toRemove) {
+      HashMap[Interpreter, int] __toStop = {};
       for (p :in __toRemove) {
           log.debug(FStr() `removing pollable $p`);
           intp := _watchedFileHandles.get(p, null);
           if (intp){
             if (_watchedInterpreters.contains(intp))
+              if (intp.status == INTP_REQUEST_STOP)
+                __toStop[intp] = 1;
               remove(intp);
             __noFileHandles[intp] = 1;
           }
       }
       __toRemove.clear();
+
+      for (intpItem :in __toStop)
+        intpItem.key.stop();
+      
       log.debug(FStr() `removals finished`);
     }
 
