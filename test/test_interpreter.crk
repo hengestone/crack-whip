@@ -5,49 +5,46 @@ import crack.net Poller, POLLIN, POLLOUT;
 import crack.runtime exit;
 import crack.strutil StringArray;
 import crack.time TimeDelta, seconds;
-import whip.interpreter ShellInterpreter, RubyInterpreter, INTP_DONE,
+import whip.interpreter ShellInterpreter, RubyInterpreter, INTP_DONE, INTP_ERROR,
                         INTP_BUSY, INTP_READY, INTP_NEW, Interpreter;
 import whip.sockserver InterpreterContainer;
 
 
-bool waitForStatus(InterpreterContainer server, Interpreter intp, int status, TimeDelta delay){
-
-  while (intp.status != status) {
-    changes := server.processOnce(delay);
-    cerrLogger.debug(FStr() `startup: status = $(intp.status), changes = $changes`);
-  }
-  return true;
-}
-
-cerrLogger.setLevel(ERROR);
+cerrLogger.setLevel(DEBUG);
 cerrLogger.setNamedFields("progname datetime severity msg");
 server := InterpreterContainer(cerrLogger);
 delay := seconds(1);
 
-#~ ShellInterpreter intp = {};
-#~ server.add(intp, intp.getFileHandles()[0]);
 RubyInterpreter rintp = {cerrLogger};
 rintp.setMaxCmds(5);
-rintp.start();
 server.add(rintp);
 
-// Sleepy wait for server to become ready
-waitForStatus(server, rintp, INTP_READY, delay);
 int oldstatus = rintp.status;
 int i = 0;
+sfmt := FStr();
 
 while (i<11){
-  if (rintp.status == INTP_NEW){
-    rintp.start();
-    cerrLogger.debug("Waiting for startup...");
-    waitForStatus(server, rintp, INTP_READY, delay);
-  }
 
-  if (rintp.exe(FStr() `puts('hello ruby $(i)' )\n`) == -1)
+  if (rintp.exe(sfmt `puts('hello ruby $(i)' )\n`) == INTP_ERROR)
     break;
-  while (rintp.status != INTP_READY && rintp.status != INTP_NEW) {
+  oldstatus = rintp.status;
+  while (1) {
+    cerrLogger.debug(FStr() `oldstatus = $(rintp.status)`);
     changes := server.processOnce(delay);
-    cerrLogger.debug(FStr() `$i: status = $(rintp.status), changes = $changes`);
+    if (changes){
+      int status = rintp.getStatusChange();
+      cerrLogger.debug(FStr() `$i: status= $(rintp.status), oldstatus= $oldstatus, changes = $changes`);
+      while (status >= 0){
+        if (status != rintp.status)
+          oldstatus = rintp.status;
+        rintp.status = status;
+          // Check for done or error status here
+        status = rintp.getStatusChange();
+      }
+    }
+    cerrLogger.debug(FStr() `$i:: status= $(rintp.status), oldstatus= $oldstatus, changes = $changes`);
+    if ((oldstatus == INTP_DONE || oldstatus == INTP_ERROR) && rintp.status == INTP_READY)  break;
+    else if (rintp.status == INTP_NEW && oldstatus == INTP_READY) break; // interpreter was restarted
   }
   i++;
 }

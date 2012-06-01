@@ -1,4 +1,5 @@
 import crack.cont.array Array;
+import crack.cont.list List;
 import crack.cont.hashmap HashMap;
 import crack.io FStr, cerr, cout, FileHandle;
 import crack.io.readers LineReader;
@@ -44,6 +45,7 @@ class Interpreter {
   IntProcess _process;
   Logger log;
   StringArray _startCmds, _statusCmds;
+  List[int] _statusChanges = {};
   int status = -1;
   uint _maxCmds = INF; // Infinite, deliberately wraps around
   uint _finishedCmds = 0;
@@ -68,7 +70,7 @@ class Interpreter {
   }
 
   @abstract
-  Array[int] dataReady(FileHandle f);
+  int dataReady(FileHandle f);
 
   @abstract
   int start();
@@ -93,6 +95,13 @@ class Interpreter {
 
     return INTP_READY;
   }
+
+  int getStatusChange(){
+    log.debug(FStr() `getStatusChange: $_statusChanges`);
+    if (_statusChanges) return _statusChanges.popHead();
+    return -1;
+  }
+
 }
 
 // An intepreter that spawns a subprocess and creates a pipe to read status from
@@ -127,6 +136,7 @@ class SimpleInterpreter : Interpreter {
     if (status != INTP_NEW) return INTP_ERROR;
     if (_statusCmds.count() !=6)
       throw Exception("Array of statusCmds must have 6 entries");
+    log.debug("*** Starting server ***");
     _statusPipe := Pipe();
     _statusPipe.setNonBlocking(true);
     _pipes.append(_statusPipe);
@@ -199,6 +209,7 @@ class SimpleInterpreter : Interpreter {
     _finishedCmds++;
     if (_finishedCmds >= _maxCmds){
       status = INTP_REQUEST_STOP;
+      _statusChanges.append(INTP_NEW);
     }
     return status;
   }
@@ -214,12 +225,12 @@ class SimpleInterpreter : Interpreter {
       _process.putStdIn(_statusCmds[INTP_DONE]);
     if (_statusCmds[INTP_READY])
       _process.putStdIn(_statusCmds[INTP_READY]);
-    return script.size; // TODO, get real number of bytes sent
+    return INTP_SUBMIT; // TODO, get real number of bytes sent
   }
 
-
-  Array[int] dataReady(FileHandle f){
-    Array[int] changes = {};
+  int dataReady(FileHandle f){
+    int changes = 0;
+    int newStatus = status, s;
     oldStatus := status;
 
     try {
@@ -229,27 +240,31 @@ class SimpleInterpreter : Interpreter {
         for (lineItem :in lr){
           log.debug(lineItem);
           if (fd != _statusFD) continue; // Don't get confused by output from wrong fd
+
           m := _rx.search(lineItem);
           if (!m) {
             continue;
           }
+
           g := m.group(1);
-          int s = -1;
           if (g) {
             s = statusMap.get(g, -1);
-            if (s>=0) {
-              oldStatus = status;
-              status = s;
-              changes.append(s);
+            if (s >= 0) {
+              oldStatus = newStatus;
+              newStatus = s;
+              _statusChanges.append(newStatus);
+              log.debug(FStr() `Appended status change: $_statusChanges, count = $(_statusChanges.count())`);
+              changes++;
             }
           }
         }
-        if (status == INTP_READY && oldStatus == INTP_DONE)
+        if (newStatus == INTP_READY &&
+           (oldStatus == INTP_DONE || oldStatus == INTP_ERROR))
           onReady();
       }
       else {
         log.error(FStr() `FileHandle($fd) not found!\n`);
-        return null;
+        return -1;
       }
     }
     catch(Exception ex){

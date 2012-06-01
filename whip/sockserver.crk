@@ -5,7 +5,7 @@
 
 import crack.ascii strip;
 import crack.cont.array Array;
-import crack.cont.hashmap HashMap;
+import crack.cont.hashmap HashMap, OrderedHashMap;
 import crack.io cerr, StandardFormatter, StringFormatter, Writer, FStr, FileHandle;
 import crack.lang AppendBuffer, Buffer, ManagedBuffer, WriteBuffer, CString,
                   AssertionError, InvalidArgumentError;
@@ -42,14 +42,17 @@ class InterpreterContainer {
   void add(Interpreter intp, Array[FileHandle] fhs){
     if (_watchedInterpreters.get(intp, null))
       throw InvalidArgumentError(FStr() `Interpreter $intp already watched. Hint: remove first then add`);
+    log.debug(FStr() `Adding interpreter`);
     HashMap[FileHandle, int] fhMap = {};
     for (fh :in fhs) {
       __addFileHandle(fh);
       _watchedFileHandles[fh] = intp;
       fhMap[fh] = fh.fd;
     }
-    _watchedInterpreters[intp] = fhMap;
-    if (fhMap.count() == 0) __noFileHandles[intp] = 1;
+    if (!fhMap) __noFileHandles[intp] = 1;
+    else _watchedInterpreters[intp] = fhMap;
+    log.debug(FStr() `fhMap = $fhMap, noFileHandles.count = $(__noFileHandles.count())`);
+    
   }
 
   void add(Interpreter intp){
@@ -96,14 +99,16 @@ class InterpreterContainer {
         }
       }
     }
+
+    for (intp :in removeIntp) __noFileHandles.delete(intp);
     return i;
   }
 
   /// Process a single event.
   /// If 'timeout' is not null, it is the timeout to wait for the next event.
-  HashMap[int, Interpreter] processOnce(TimeDelta timeout) {
+  OrderedHashMap[int, Interpreter] processOnce(TimeDelta timeout) {
     __checkNew();
-    HashMap[int, Interpreter] changed = {};
+    OrderedHashMap[int, Interpreter] changed = {};
     Interpreter evIntp;
     log.debug(FStr() `waiting for an event`);
     result := _poller.wait(timeout);
@@ -116,7 +121,7 @@ class InterpreterContainer {
       if (POLLIN & evt.revents) {
           log.debug(FStr() `  got client read: $(evt.pollable)`);
           evIntp = _watchedFileHandles[evt.pollable];
-          if (evIntp.dataReady(evt.pollable).count() > 0) changed[evIntp.id()] = evIntp;
+          if (evIntp.dataReady(evt.pollable) > 0) changed[evIntp.id()] = evIntp;
           if (evIntp.status == INTP_REQUEST_STOP) // to stop
             __toRemove.append(evt.pollable);
       } else if (POLLOUT & evt.revents) {
