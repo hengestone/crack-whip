@@ -37,6 +37,7 @@ class InterpreterContainer {
   void __addFileHandle(FileHandle fh){
     _poller.add(fh, POLLIN);
     _poller.setEvents(fh, POLLIN);
+    log.debug(FStr() `__addFileHandle $fh`);
   }
 
   void add(Interpreter intp, Array[FileHandle] fhs){

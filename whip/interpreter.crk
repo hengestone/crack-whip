@@ -8,14 +8,21 @@ import crack.logger cerrLogger, Logger;
 import crack.net Pipe;
 import crack.process Process;
 import crack.regex escape, Regex, Match;
-import crack.runtime errno;
+import crack.runtime errno, usecs, srandom, random;
 import crack.strutil StringArray;
 import crack.sys env, strerror;
-#~ import whip.entity Entity;
 
 // Interpreter is a client that connects to a Unix socket, then forks to make the
 // socket available to an interpreter process (bash, ruby, python etc)
 
+// Random numbers for interpreter ids
+us := usecs();
+srandom(uint(us));
+
+int globalId = random();
+while (!globalId) globalId = random();
+
+// Interpreter process class
 class IntProcess : Process {
   oper init(String cmd): Process(cmd) { }
   oper init(StringArray args, HashMap[String, String] envMap): Process(args, envMap) {}
@@ -24,6 +31,7 @@ class IntProcess : Process {
   int getErrFD() { return _pd.stderr; }
 }
 
+// Constants
 const int INTP_NEW = 0,
           INTP_READY = 1,
           INTP_SUBMIT = 2,
@@ -46,27 +54,31 @@ class Interpreter {
   Logger log;
   StringArray _startCmds, _statusCmds;
   List[int] _statusChanges = {};
-  int status = -1;
-  uint _maxCmds = INF; // Infinite, deliberately wraps around
+  int status = -1, _id;
+  uint _maxCmds = INF; // Infinite
   uint _finishedCmds = 0;
 
   @abstract
   oper init(StringArray cmd, StringArray statusCmds) :
         _startCmds = cmd, _statusCmds = statusCmds,
         log = cerrLogger
-  { }
+  {
+    _id = globalId++;
+  }
 
   @abstract
   oper init(StringArray cmd, StringArray statusCmds, Logger newlog) :
         _startCmds = cmd, _statusCmds = statusCmds, log = newlog
-  { }
+  {
+    _id = globalId++;
+  }
 
 
   @abstract
   Array[FileHandle] getFileHandles();
 
   int id(){
-    return _process.getPid();
+    return _id;
   }
 
   @abstract
@@ -105,6 +117,7 @@ class Interpreter {
 }
 
 // An intepreter that spawns a subprocess and creates a pipe to read status from
+@abstract
 class SimpleInterpreter : Interpreter {
   Array[Pipe] _pipes;
   Array[FileHandle] _pollables;
@@ -176,17 +189,11 @@ class SimpleInterpreter : Interpreter {
     if (_statusCmds[INTP_NEW]) {
       _process.putStdIn(_statusCmds[INTP_NEW]); // Initialize interpreter
     }
-    
-    _pollables = Array[FileHandle]![FileHandle(addr.readfd)];
-#~                   FileHandle(_process.getOutputFD()) ];
 
+    _pollables.clear();
+    
     _finishedCmds = 0;
     return INTP_SUBMIT;
-  }
-
-  Array[FileHandle] getFileHandles(){
-    log.debug(FStr() `getFileHandles: _pollables=$_pollables`);
-    return _pollables;
   }
 
   int stop() {
@@ -221,6 +228,7 @@ class SimpleInterpreter : Interpreter {
     if (_statusCmds[INTP_BUSY])
       _process.putStdIn(_statusCmds[INTP_BUSY]);
     _process.putStdIn(script);
+    log.debug(FStr() `$_id wrote script`);
     if (_statusCmds[INTP_DONE])
       _process.putStdIn(_statusCmds[INTP_DONE]);
     if (_statusCmds[INTP_READY])
@@ -314,6 +322,15 @@ class ShellInterpreter : SimpleInterpreter {
   oper init(Logger newlog) :
     SimpleInterpreter(_bashInit, _bashStatus, newlog)
   { }
+
+  Array[FileHandle] getFileHandles(){
+    if (!_pollables && _pipes) 
+      _pollables = Array[FileHandle]![_pipes[0],
+                                      FileHandle(_process.getOutputFD()) ];
+    log.debug(FStr() `getFileHandles: _pollables=$_pollables`);
+    return _pollables;
+  }
+
 }
 
 class RubyInterpreter : SimpleInterpreter {
@@ -324,4 +341,12 @@ class RubyInterpreter : SimpleInterpreter {
   oper init(Logger newlog) :
     SimpleInterpreter(_rubyInit, _rubyStatus, newlog)
   { }
+
+  Array[FileHandle] getFileHandles(){
+    if (!_pollables && _pipes) 
+      _pollables = Array[FileHandle]![_pipes[0]];
+    log.debug(FStr() `getFileHandles: _pollables=$_pollables`);
+    return _pollables;
+  }
+
 }
