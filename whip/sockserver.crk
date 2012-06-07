@@ -88,7 +88,7 @@ class InterpreterContainer {
     Array[Interpreter] removeIntp = {};
     int i=0;
     for (intpItem :in __noFileHandles){
-      if (_watchedInterpreters.contains(intpItem.key)){
+      if (_watchedInterpreters.hasKey(intpItem.key)){
         removeIntp.append(intpItem.key);
       }
       else {
@@ -143,7 +143,7 @@ class InterpreterContainer {
           log.debug(FStr() `removing pollable $p`);
           intp := _watchedFileHandles.get(p, null);
           if (intp){
-            if (_watchedInterpreters.contains(intp))
+            if (_watchedInterpreters.hasKey(intp))
               if (intp.status == INTP_REQUEST_STOP)
                 __toStop[intp] = 1;
               remove(intp);
