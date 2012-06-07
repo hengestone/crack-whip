@@ -1,0 +1,172 @@
+// A server to handle communication with 'interpreters'
+// Taken from crack.net.httpserv.crk, under LGPL
+
+// Conrad Steenberg <conrad.steenberg@gmail.com>
+
+import crack.ascii strip;
+import crack.cont.array Array;
+import crack.cont.hashmap HashMap, OrderedHashMap;
+import crack.io cerr, StandardFormatter, StringFormatter, Writer, FStr, FileHandle;
+import crack.lang AppendBuffer, Buffer, ManagedBuffer, WriteBuffer, CString,
+                  AssertionError, InvalidArgumentError;
+import crack.lang SystemError;
+import crack.logger Logger, DEBUG, WARN, INFO, ERROR, FATAL, cerrLogger;
+import crack.net Poller, POLLIN, POLLOUT, POLLERR, POLLHUP;
+import crack.sys strerror;
+import crack.time TimeDelta;
+@import crack.ann assert;
+import whip.interpreter Interpreter, INTP_NEW, INTP_REQUEST_STOP;
+
+/// An Interpreter Server Container
+class InterpreterContainer {
+  Logger log;
+
+  Poller _poller = {};
+  HashMap[Interpreter, int] __noFileHandles = {};
+  HashMap[FileHandle, Interpreter] _watchedFileHandles = {};
+  HashMap[Interpreter, HashMap[FileHandle, int]] _watchedInterpreters = {};
+  Array[FileHandle] __toRemove = {};
+  int status, refCount;
+
+  oper init() : refCount = 1, log = cerrLogger {
+  }
+
+  oper init(Logger newlog) : refCount = 1, log = newlog {
+  }
+
+  void __addFileHandle(FileHandle fh){
+    _poller.add(fh, POLLIN);
+    _poller.setEvents(fh, POLLIN);
+    log.debug(FStr() `__addFileHandle $fh`);
+  }
+
+  void add(Interpreter intp, Array[FileHandle] fhs){
+    if (_watchedInterpreters.get(intp, null))
+      throw InvalidArgumentError(FStr() `Interpreter $intp already watched. Hint: remove first then add`);
+    log.debug(FStr() `Adding interpreter`);
+    HashMap[FileHandle, int] fhMap = {};
+    for (fh :in fhs) {
+      __addFileHandle(fh);
+      _watchedFileHandles[fh] = intp;
+      fhMap[fh] = fh.fd;
+    }
+    if (!fhMap) __noFileHandles[intp] = 1;
+    else _watchedInterpreters[intp] = fhMap;
+    log.debug(FStr() `fhMap = $fhMap, noFileHandles.count = $(__noFileHandles.count())`);
+    
+  }
+
+  void add(Interpreter intp){
+    fhs := intp.getFileHandles();
+    add(intp, fhs);
+  }
+
+  void remove(Interpreter intp){
+    fhMap := _watchedInterpreters.get(intp, null);
+    if (!fhMap) throw InvalidArgumentError(FStr() `Interpreter $intp not watched`);
+    _watchedInterpreters.delete(intp);
+    for (fhItem :in fhMap) {
+      _poller.remove(fhItem.key);
+      _watchedFileHandles.delete(fhItem.key);
+    }
+  }
+
+  int __checkNew(){
+
+    // Check all interpreters to see if they still have valid pollables
+    for (intpItem :in _watchedInterpreters){
+      p := intpItem.key.getFileHandles();
+      log.debug(FStr() `$p, count=$(p.count())`); 
+      if (p.count() == 0){
+          __noFileHandles[intpItem.key] = 1;
+          log.debug(FStr() `__checkNew: added $(intpItem.key) to __noFileHandles`);
+      }
+    }
+
+    if (!__noFileHandles) return 0;
+
+    Array[Interpreter] removeIntp = {};
+    int i=0;
+    for (intpItem :in __noFileHandles){
+      if (_watchedInterpreters.hasKey(intpItem.key)){
+        removeIntp.append(intpItem.key);
+      }
+      else {
+        fhs := intpItem.key.getFileHandles();
+        if (fhs) {
+          log.debug(FStr() `Adding interpreter $(intpItem.key): $fhs`);
+          add(intpItem.key, fhs);
+          i++;
+        }
+      }
+    }
+
+    for (intp :in removeIntp) __noFileHandles.delete(intp);
+    return i;
+  }
+
+  /// Process a single event.
+  /// If 'timeout' is not null, it is the timeout to wait for the next event.
+  OrderedHashMap[int, Interpreter] processOnce(TimeDelta timeout) {
+    __checkNew();
+    OrderedHashMap[int, Interpreter] changed = {};
+    Interpreter evIntp;
+    log.debug(FStr() `waiting for an event`);
+    result := _poller.wait(timeout);
+
+    log.debug(FStr() `got events: $result`);
+    log.debug(FStr() `Poller = $_poller`);
+    log.debug(FStr() `Intps = $_watchedInterpreters`);
+
+    while (evt := _poller.nx()) {
+      if (POLLIN & evt.revents) {
+          log.debug(FStr() `  got client read: $(evt.pollable)`);
+          evIntp = _watchedFileHandles[evt.pollable];
+          if (evIntp.dataReady(evt.pollable) > 0) changed[evIntp.id()] = evIntp;
+          if (evIntp.status == INTP_REQUEST_STOP) // to stop
+            __toRemove.append(evt.pollable);
+      } else if (POLLOUT & evt.revents) {
+          log.debug(FStr() `  got client writable, ignoring`);
+      } else if (POLLERR & evt.revents) {
+          log.debug(FStr() `  error on socket $(evt.pollable)`);
+      } else {
+        log.debug(FStr()
+          `  Unknown pollable = $(evt.pollable), events = $(evt.events), revents = $(evt.revents)`);
+        __toRemove.append(evt.pollable);
+      }
+    }
+
+    // remove pollables that were invalid
+    if (__toRemove) {
+      HashMap[Interpreter, int] __toStop = {};
+      for (p :in __toRemove) {
+          log.debug(FStr() `removing pollable $p`);
+          intp := _watchedFileHandles.get(p, null);
+          if (intp){
+            if (_watchedInterpreters.hasKey(intp))
+              if (intp.status == INTP_REQUEST_STOP)
+                __toStop[intp] = 1;
+              remove(intp);
+            __noFileHandles[intp] = 1;
+          }
+      }
+      __toRemove.clear();
+
+      for (intpItem :in __toStop)
+        intpItem.key.stop();
+      
+      log.debug(FStr() `removals finished`);
+    }
+
+    return changed;
+  }
+
+  void run() {
+    while (true) {
+        changed := processOnce(null);
+    }
+  }
+}
+
+
+

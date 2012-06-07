@@ -1,0 +1,15 @@
+digraph states {
+new -> ready;
+new -> submit;
+submit -> ready;
+new -> error;
+ready -> submit;
+submit -> busy;
+busy -> done;
+busy -> error;
+error -> ready;
+done -> new;
+done -> ready;
+ready -> stop;
+stop -> new;
+}

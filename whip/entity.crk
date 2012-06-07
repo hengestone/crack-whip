@@ -1,0 +1,176 @@
+// main entity class
+
+import crack.cont.hashmap OrderedHashMap;
+import crack.exp.file FileInfo, File;
+import crack.io cerr, cout, FStr;
+import crack.lang CString, Exception, Formatter, AppendBuffer;
+import crack.runtime usecs, Stat, stat, c_strerror, is_file, S_IFREG, S_IRWXU,
+                       errno, utimes, ENOENT, EEXIST, ENOTDIR,
+                       TimeVal, open, mkdir, memset, creat, close, PipeDesc, PATH_MAX;
+import crack.strutil split;
+
+const uint ENTITY_NEW=0, ENTITY_BUSY=1, ENTITY_DONE=2, ENTITY_OLD=3, ENTITY_ERROR=4;
+
+// Recursively make a directory
+String mkdirs(String pathname){
+    dirs := split(pathname, "/");
+    cerr `dirs=$dirs\n`;
+    numdirs := dirs.count();
+    if (dirs.count() == 0) return pathname; // empty name, no errors
+    curname := AppendBuffer(PATH_MAX);
+    memset(curname.buffer, 0, PATH_MAX);
+    int failed, errnum;
+    
+    uint i;
+
+    for (i = 0; i < numdirs; i++){
+        if (dirs[i].size==0) continue;
+        if (curname.size + 1 + dirs[i].size > PATH_MAX)
+            throw Exception(FStr() `Attempting to create a directory name longer than $PATH_MAX: $curname`);
+        curname.extend("/");
+        curname.extend(dirs[i]);
+        cerr `Creating $curname\n`;
+        failed = mkdir(curname.buffer, S_IRWXU);
+        
+        if (failed) {
+            errnum := errno();
+            if (errnum == EEXIST) continue;
+            return String(curname);
+        }
+        errnum = failed;
+    }
+    return String(curname);
+}
+
+@abstract
+class Entity {
+     OrderedHashMap[String, Entity] deps;
+    uint status;
+    int64 timestamp;
+    String name;
+
+    oper init(String name0) : name = name0 {
+        status = ENTITY_NEW;
+        timestamp = 0;
+    }
+
+    /// Force a status update, returns true if status changed
+    /// E.g. this does a stat on a file
+    @abstract
+    bool updateStatus(int64 time);
+
+    /// Do whatever needs to be done to update the status to ENTITY_DONE
+    /// Iterates through the dependencies and updates them
+    /// The timestamp is used to check for circular dependencies
+    /// and may be used by some kinds of entities as an update stamp
+    /// where there is nothing physical to use as a status indicator.
+    /// Returns true if an update was done
+    /// one for each dependency
+
+    /// An implementation may choose to return before all its
+    /// dependencies are done. It must set its status as ENTITY_DONE.
+    /// Parent entities should stop calling update when
+    /// status==ENTITY_DONE and this.timestamp <= time parameter
+    /// Call this multiple times with the same timestamp until it
+    /// returns true
+    @abstract
+    bool update(bool force, int64 time);
+
+}
+
+
+class FileEntity : Entity {
+    FileInfo _file;
+    Stat _stat;
+    oper init(String name0, String fname) : Entity(name0),
+                                           _file(fname), _stat()
+    {   this.name = name0;
+        if ((name is null) || (name.size == 0))
+            name = _file.basename(false);
+        _stat.st_mode=0;
+    }
+
+
+    // Just stats the file if needed
+    bool updateStatus(int64 time){
+        if ((status == ENTITY_DONE || status == ENTITY_BUSY) && (timestamp <= time)) return false;
+        errs := stat(CString(_file.name).buffer, _stat);
+        if (errs == -1 || ! (_stat.st_mode & S_IFREG)) {
+            err := errno();
+            if (err == ENOENT) status = ENTITY_NEW;
+            else status = ENTITY_ERROR;
+            timestamp = time;
+            _stat.st_mode = 0;
+            cerr `_stat.st_mode1 = $(_stat.st_mode)\n`;
+            return true;
+        }
+
+        int64 ts = int64(_stat.st_mtime) * 1000000;
+
+        if ((ts > timestamp) && (status == ENTITY_DONE)){ // File was updated, it's status changed
+            return true;
+        }
+
+        status = ENTITY_DONE;
+        return false;
+    }
+
+    bool update(bool force, int64 time){
+        bool exists = false;
+        bool updated = false;
+
+        if (!force && ((status == ENTITY_DONE) || (status == ENTITY_BUSY
+        )) && (timestamp >= time)) return false;
+
+        updated = updateStatus(time);
+        cerr `_stat.st_mode2 = $(_stat.st_mode & S_IFREG )\n`;
+        exists = (_stat.st_mode & S_IFREG) != 0;
+        cerr `exists = $exists\n`;
+
+        if (!force && exists && !updated) return false; // No update
+        status = ENTITY_BUSY;
+
+        if (!exists) {
+            i := 0;
+            while (i < 2 && !exists){
+                fd := creat(CString(_file.name).buffer, S_IRWXU); // create file
+                errnum := errno();
+                cerr `i=$i, fd = $fd, errnum=$errnum, ENOTDIR=$ENOTDIR, ENOENT=$ENOENT\n`;
+                if (i == 0 && fd == -1 && (errnum == ENOTDIR || errnum == ENOENT)){
+                    path := _file.dirname();
+                    realPath := mkdirs(path);
+                    errnum := errno();
+                    if (errnum != EEXIST){
+                        cerr `Opening directory $realPath: $(c_strerror())\n`;
+                        status = ENTITY_ERROR;
+                        break;
+                    }
+                    i++;
+                    continue;
+                }
+                if (fd >= 0) {
+                    exists = true;
+                    close(fd);
+                    break;
+                }
+                cerr `Creating file $(_file.name): $(c_strerror())\n`;
+                status = ENTITY_ERROR;
+                break;
+            }
+        }
+        else {
+            updated = true;
+            tv := int64(usecs());
+            errs := utimes(_file.name.buffer, tv, tv, false);
+        }
+
+        timestamp = time;
+        status = ENTITY_DONE;
+        return true;
+    }
+
+    void formatTo(Formatter fmt){
+        fmt `FileEntity {name : $name, status: $status, timestamp: $timestamp}`;
+    }
+    
+}

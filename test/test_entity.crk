@@ -1,0 +1,15 @@
+// Test for Entity class
+import whip.entity FileEntity;
+import crack.runtime usecs;
+import crack.io cout;
+
+fe := FileEntity(null, "/home/conrad/Download/crack-language/whip/testdir/test");
+int64 ts = usecs();
+fe.updateStatus(ts);
+
+cout `fe = $fe, ts = $ts\n`;
+
+ts = usecs();
+fe.update(false, ts);
+
+cout `fe = $fe, ts = $ts\n`;

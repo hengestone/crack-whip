@@ -1,0 +1,352 @@
+import crack.cont.array Array;
+import crack.cont.list List;
+import crack.cont.hashmap HashMap;
+import crack.io FStr, cerr, cout, FileHandle;
+import crack.io.readers LineReader;
+import crack.lang CString, Exception, Formatter;
+import crack.logger cerrLogger, Logger;
+import crack.net Pipe;
+import crack.process Process;
+import crack.regex escape, Regex, Match;
+import crack.runtime errno, usecs, srandom, random;
+import crack.strutil StringArray;
+import crack.sys env, strerror;
+
+// Interpreter is a client that connects to a Unix socket, then forks to make the
+// socket available to an interpreter process (bash, ruby, python etc)
+
+// Random numbers for interpreter ids
+us := usecs();
+srandom(uint(us));
+
+int globalId = random();
+while (!globalId) globalId = random();
+
+// Interpreter process class
+class IntProcess : Process {
+  oper init(String cmd): Process(cmd) { }
+  oper init(StringArray args, HashMap[String, String] envMap): Process(args, envMap) {}
+  int getInputFD() { return _pd.stdin; }
+  int getOutputFD() { return _pd.stdout; }
+  int getErrFD() { return _pd.stderr; }
+}
+
+// Constants
+const int INTP_NEW = 0,
+          INTP_READY = 1,
+          INTP_SUBMIT = 2,
+          INTP_BUSY = 3,
+          INTP_ERROR = 4,
+          INTP_DONE = 5,
+          INTP_REQUEST_STOP = 6;
+
+HashMap[String, int] statusMap = {};
+statusMap["READY"] = INTP_READY;
+statusMap["BUSY"] = INTP_BUSY;
+statusMap["ERROR"] = INTP_ERROR;
+statusMap["DONE"] = INTP_DONE;
+uint INF = 1<<32 -1;
+
+
+@abstract
+class Interpreter {
+  IntProcess _process;
+  Logger log;
+  StringArray _startCmds, _statusCmds;
+  List[int] _statusChanges = {};
+  int status = -1, _id;
+  uint _maxCmds = INF; // Infinite
+  uint _finishedCmds = 0;
+
+  @abstract
+  oper init(StringArray cmd, StringArray statusCmds) :
+        _startCmds = cmd, _statusCmds = statusCmds,
+        log = cerrLogger
+  {
+    _id = globalId++;
+  }
+
+  @abstract
+  oper init(StringArray cmd, StringArray statusCmds, Logger newlog) :
+        _startCmds = cmd, _statusCmds = statusCmds, log = newlog
+  {
+    _id = globalId++;
+  }
+
+
+  @abstract
+  Array[FileHandle] getFileHandles();
+
+  int id(){
+    return _id;
+  }
+
+  @abstract
+  int dataReady(FileHandle f);
+
+  @abstract
+  int start();
+
+  @abstract
+  int restart();
+
+  @abstract
+  int onReady();
+
+  @abstract
+  int stop();
+
+  @abstract
+  int exe(String script);
+
+  int setMaxCmds(uint newMaxCmds){
+    _maxCmds = newMaxCmds;
+    if (newMaxCmds <= _finishedCmds){
+      return restart()
+    }
+
+    return INTP_READY;
+  }
+
+  int getStatusChange(){
+    log.debug(FStr() `getStatusChange: $_statusChanges`);
+    if (_statusChanges) return _statusChanges.popHead();
+    return -1;
+  }
+
+}
+
+// An intepreter that spawns a subprocess and creates a pipe to read status from
+@abstract
+class SimpleInterpreter : Interpreter {
+  Array[Pipe] _pipes;
+  Array[FileHandle] _pollables;
+  HashMap[int, LineReader] _readers;
+  Regex _rx;
+  int _statusFD;
+
+  void _initRefs(){
+    _pipes = Array[Pipe]();
+    _pollables = Array[FileHandle]();
+    _readers = HashMap[int, LineReader]();
+  }
+
+  oper init(StringArray cmd, StringArray statusCmds) :
+    Interpreter(cmd, statusCmds), _rx = Regex('status:([A-Z]+).*')
+  {
+    status = INTP_NEW;
+    _initRefs();
+  }
+
+  oper init(StringArray cmd, StringArray statusCmds, Logger newlog) :
+    Interpreter(cmd, statusCmds, newlog), _rx = Regex('status:([A-Z]+).*')
+  {
+    status = INTP_NEW;
+    _initRefs();
+  }
+
+  int start(){
+    if (status != INTP_NEW) return INTP_ERROR;
+    if (_statusCmds.count() !=6)
+      throw Exception("Array of statusCmds must have 6 entries");
+    log.debug("*** Starting server ***");
+    _statusPipe := Pipe();
+    _statusPipe.setNonBlocking(true);
+    _pipes.append(_statusPipe);
+
+    addr := _statusPipe.getAddr();
+    env["WHIP_WRITEFD"] = FStr() `$(addr.writefd)`;
+    env["WHIP_READFD"] = FStr() `$(addr.readfd)`;
+    _statusFD = addr.readfd;
+    _process = IntProcess(_startCmds, env);
+
+    if (_process.getOutputFD() == -1){
+      throw Exception(FStr() `Unable to start interpreter $(_startCmds[0]): $(strerror())\n`);
+    }
+    
+    _statusPipe.setReader();
+    _statusFH := FileHandle(addr.writefd);
+    _statusFH.close(); // So we don't directly import runtime.close
+
+    _stdoutPipe := Pipe(int32(0), int32(_process.getOutputFD()), -1);
+    _stdoutPipe.setReader();
+    _stdoutPipe.setNonBlocking(true);
+    _pipes.append(_stdoutPipe);
+
+    _stderrPipe := Pipe(int32(0), int32(_process.getErrFD()), -1);
+    _stderrPipe.setReader();
+    _stderrPipe.setNonBlocking(true);
+    _pipes.append(_stderrPipe);
+
+    _statusPipeReader := LineReader(_statusPipe);
+    _stdoutPipeLineReader := LineReader(_stdoutPipe);
+    _stderrPipeLineReader := LineReader(_stderrPipe);
+
+    _readers[_statusPipe.getFD()] = _statusPipeReader;
+    _readers[_stdoutPipe.getFD()] = _stdoutPipeLineReader;
+    _readers[_stderrPipe.getFD()] = _stderrPipeLineReader;
+
+    if (_statusCmds[INTP_NEW]) {
+      _process.putStdIn(_statusCmds[INTP_NEW]); // Initialize interpreter
+    }
+
+    _pollables.clear();
+    
+    _finishedCmds = 0;
+    return INTP_SUBMIT;
+  }
+
+  int stop() {
+    if (_process.isRunning())
+      _process.close();
+    _initRefs();
+    status = INTP_NEW;
+    log.debug("*** Interpreter STOPPED ***");
+    return status;
+  }
+
+  int restart(){
+    stop();
+    status = INTP_NEW;
+    if (start() != INTP_SUBMIT) throw Exception("Unable to restart interpreter");
+    return status;
+  }
+
+  int onReady(){
+    _finishedCmds++;
+    if (_finishedCmds >= _maxCmds){
+      status = INTP_REQUEST_STOP;
+      _statusChanges.append(INTP_NEW);
+    }
+    return status;
+  }
+
+  int exe(String script){
+    if (status == INTP_NEW && start() != INTP_SUBMIT)
+      return INTP_ERROR;
+    status = INTP_SUBMIT;
+    if (_statusCmds[INTP_BUSY])
+      _process.putStdIn(_statusCmds[INTP_BUSY]);
+    _process.putStdIn(script);
+    log.debug(FStr() `$_id wrote script`);
+    if (_statusCmds[INTP_DONE])
+      _process.putStdIn(_statusCmds[INTP_DONE]);
+    if (_statusCmds[INTP_READY])
+      _process.putStdIn(_statusCmds[INTP_READY]);
+    return INTP_SUBMIT; // TODO, get real number of bytes sent
+  }
+
+  int dataReady(FileHandle f){
+    int changes = 0;
+    int newStatus = status, s;
+    oldStatus := status;
+
+    try {
+      fd := f.fd;
+      lr := _readers.get(fd, null);
+      if (lr){
+        for (lineItem :in lr){
+          log.debug(lineItem);
+          if (fd != _statusFD) continue; // Don't get confused by output from wrong fd
+
+          m := _rx.search(lineItem);
+          if (!m) {
+            continue;
+          }
+
+          g := m.group(1);
+          if (g) {
+            s = statusMap.get(g, -1);
+            if (s >= 0) {
+              oldStatus = newStatus;
+              newStatus = s;
+              _statusChanges.append(newStatus);
+              log.debug(FStr() `Appended status change: $_statusChanges, count = $(_statusChanges.count())`);
+              changes++;
+            }
+          }
+        }
+        if (newStatus == INTP_READY &&
+           (oldStatus == INTP_DONE || oldStatus == INTP_ERROR))
+          onReady();
+      }
+      else {
+        log.error(FStr() `FileHandle($fd) not found!\n`);
+        return -1;
+      }
+    }
+    catch(Exception ex){
+      err := errno();
+      if (err != 11)
+        log.error(FStr() `readline failed: $(strerror())`);
+    }
+    return changes;
+  }
+
+  void formatTo(Formatter fmt){
+    fmt `INTP($(id()))`;
+  }
+}
+
+StringArray _bashInit =   ["/bin/bash", "-s"],
+            _bashStatus = ['echo "status:READY" >&$WHIP_WRITEFD\n',
+                           'echo "status:READY" >&$WHIP_WRITEFD\n',
+                           null,
+                           'echo "status:BUSY" >&$WHIP_WRITEFD\n',
+                           'echo "status:ERROR" >&$WHIP_WRITEFD\n',
+                           'echo "status:DONE" >&$WHIP_WRITEFD\n'];
+
+StringArray _rubyInit =   ["/usr/bin/irb", "--noprompt", "--noreadline", "-f"],
+            _rubyStatus = [
+r'IO.open(ENV["WHIP_READFD"].to_i).close()
+__whip_status_io = nil
+begin
+  __whip_status_io = IO.new(ENV["WHIP_WRITEFD"].to_i, "w")
+  __whip_status_io.sync = true
+rescue
+  STDERR.write("Unable to open __whip_status_io\n")
+end
+__whip_status_io.syswrite("status:READY ruby\n")
+',
+                           '__whip_status_io.syswrite("status:READY ruby\\n")\n',
+                            null,
+                           '__whip_status_io.syswrite("status:BUSY ruby\\n")\nbegin\n',
+                           '__whip_status_io.syswrite("status:ERROR ruby\\n")\n',
+                           'end while false\n__whip_status_io.syswrite("status:DONE ruby\\n")\n'];
+
+class ShellInterpreter : SimpleInterpreter {
+  oper init() :
+    SimpleInterpreter(_bashInit, _bashStatus)
+  { }
+
+  oper init(Logger newlog) :
+    SimpleInterpreter(_bashInit, _bashStatus, newlog)
+  { }
+
+  Array[FileHandle] getFileHandles(){
+    if (!_pollables && _pipes) 
+      _pollables = Array[FileHandle]![_pipes[0],
+                                      FileHandle(_process.getOutputFD()) ];
+    log.debug(FStr() `getFileHandles: _pollables=$_pollables`);
+    return _pollables;
+  }
+
+}
+
+class RubyInterpreter : SimpleInterpreter {
+  oper init() :
+    SimpleInterpreter(_rubyInit, _rubyStatus)
+  { }
+
+  oper init(Logger newlog) :
+    SimpleInterpreter(_rubyInit, _rubyStatus, newlog)
+  { }
+
+  Array[FileHandle] getFileHandles(){
+    if (!_pollables && _pipes) 
+      _pollables = Array[FileHandle]![_pipes[0]];
+    log.debug(FStr() `getFileHandles: _pollables=$_pollables`);
+    return _pollables;
+  }
+
+}
