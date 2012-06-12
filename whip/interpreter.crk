@@ -109,7 +109,7 @@ class Interpreter {
   }
 
   int getStatusChange(){
-    log.debug(FStr() `getStatusChange: $_statusChanges`);
+    log.debug(FStr() `getStatusChange($(id())): $_statusChanges`);
     if (_statusChanges) return _statusChanges.popHead();
     return -1;
   }
@@ -149,7 +149,7 @@ class SimpleInterpreter : Interpreter {
     if (status != INTP_NEW) return INTP_ERROR;
     if (_statusCmds.count() !=6)
       throw Exception("Array of statusCmds must have 6 entries");
-    log.debug("*** Starting server ***");
+    log.debug(FStr() `*** Starting server $(id()) ***`);
     _statusPipe := Pipe();
     _statusPipe.setNonBlocking(true);
     _pipes.append(_statusPipe);
@@ -197,11 +197,12 @@ class SimpleInterpreter : Interpreter {
   }
 
   int stop() {
-    if (_process.isRunning())
-      _process.close();
+    log.debug(FStr() `*** Stopping $(id()),$(_process.getPid()) ***`);
+    _process.close();
+    _process.terminate();
+    _process.wait();
     _initRefs();
     status = INTP_NEW;
-    log.debug("*** Interpreter STOPPED ***");
     return status;
   }
 
@@ -261,7 +262,7 @@ class SimpleInterpreter : Interpreter {
               oldStatus = newStatus;
               newStatus = s;
               _statusChanges.append(newStatus);
-              log.debug(FStr() `Appended status change: $_statusChanges, count = $(_statusChanges.count())`);
+              log.debug(FStr() `$((id())): appended status change: $_statusChanges, count = $(_statusChanges.count())`);
               changes++;
             }
           }
