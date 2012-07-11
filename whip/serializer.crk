@@ -1,0 +1,145 @@
+// An abstract class similar to a formatter,
+// only for elementary types and arrays
+
+// Copyright 2012 Conrad Steenberg <conrad.steenberg@gmail.com>
+import crack.cont.array Array;
+import crack.lang Buffer;
+import crack.io FDReader, FDWriter;
+@import crack.ann define, export;
+
+// Compare functions from crack.lang
+@define lightcmp (T) {
+  int cmp(T a, T b) { return a - b; }
+}
+
+@define heavycmp(T) {
+  int cmp(T a, T b) {
+    if (a > b)
+        return 1;
+    else if (a < b)
+        return -1;
+    else
+        return 0;
+  }
+}
+
+int cmp(bool a, bool b) { 
+    if ((a && b) || (!a && !b)) return 0;
+    return 1;
+}
+
+@lightcmp(byte)
+@lightcmp(int16)
+@lightcmp(int32)
+@heavycmp(uint16)
+@heavycmp(uint32)
+@heavycmp(int64)
+@heavycmp(uint64)
+@heavycmp(float32)
+@heavycmp(float64)
+@lightcmp(int)
+@heavycmp(uint)
+
+@export_symbols cmp;
+
+@abstract class Serializer {
+
+    oper init() {}
+
+#~     @abstract oper init(uint bufsize);
+#~     @abstract oper init(FDReader r);
+
+    @define formatMethod(T) {
+        @abstract void format(T val);
+    }
+
+    @formatMethod(int)
+    @formatMethod(uint)
+
+    @formatMethod(int16)
+    @formatMethod(uint16)
+
+    @formatMethod(int32)
+    @formatMethod(uint32)
+
+    @formatMethod(int64)
+    @formatMethod(uint64)
+
+    @formatMethod(float32)
+    @formatMethod(float64)
+    @formatMethod(bool)
+
+    @define formatMethodArray(T) {
+        @abstract void format(Array[T] val);
+    }
+
+    @formatMethodArray(int)
+    @formatMethodArray(uint)
+    @formatMethodArray(int16)
+    @formatMethodArray(uint16)
+    @formatMethodArray(int32)
+    @formatMethodArray(uint32)
+    @formatMethodArray(int64)
+    @formatMethodArray(uint64)
+    @formatMethodArray(float32)
+    @formatMethodArray(float64)
+    @formatMethodArray(bool)
+
+    @abstract void format(Buffer val);
+    @abstract void write(Buffer buf);
+
+}
+
+@abstract class Materializer {
+
+    oper init() {}
+
+#~     @abstract oper init(Buffer buf);
+#~     @abstract oper init(FDWriter w);
+
+    @define formatMethod(T) {
+        @abstract T format(T val);
+    }
+
+    @formatMethod(int)
+    @formatMethod(uint)
+
+    @formatMethod(int16)
+    @formatMethod(uint16)
+
+    @formatMethod(int32)
+    @formatMethod(uint32)
+
+    @formatMethod(int64)
+    @formatMethod(uint64)
+
+    @formatMethod(float32)
+    @formatMethod(float64)
+    @formatMethod(bool)
+
+    @define formatMethodArray(T) {
+        @abstract Array[T] format(Array[T] val);
+    }
+
+    @formatMethodArray(int)
+    @formatMethodArray(uint)
+    @formatMethodArray(int16)
+    @formatMethodArray(uint16)
+    @formatMethodArray(int32)
+    @formatMethodArray(uint32)
+    @formatMethodArray(int64)
+    @formatMethodArray(uint64)
+    @formatMethodArray(float32)
+    @formatMethodArray(float64)
+    @formatMethodArray(bool)
+
+    @abstract String format(String val);
+
+    @abstract void write(Buffer buf);
+
+}
+
+@abstract class Serializable {
+    @abstract void serialize(Serializer sr);
+    @abstract uint sizeNeeded();
+}

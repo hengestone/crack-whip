@@ -284,6 +284,10 @@ class SimpleInterpreter : Interpreter {
     return changes;
   }
 
+  oper del(){
+    if (_process) stop();
+  }
+
   void formatTo(Formatter fmt){
     fmt `INTP($(id()))`;
   }
