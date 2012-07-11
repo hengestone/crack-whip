@@ -1,0 +1,319 @@
+// Class serialization/deserialization using supplied functions
+import crack.io Formatter, Writer, cout, FDReader, FDWriter, FStr;
+import whip.serializer Materializer, Serializer, Serializable;
+import crack.lang ManagedBuffer, Buffer, InvalidArgumentError, InvalidResourceError,
+                  AssertionError;
+
+import crack.runtime XDR_ENCODE, XDR_DECODE, XDR_FREE, xdr, xdrmem_create,
+                        xdr_encode_bool, xdr_decode_bool, xdr_error,
+                        xdr_encode_int, xdr_decode_int, 
+                        xdr_encode_uint, xdr_decode_uint,
+                        xdr_encode_int64, xdr_decode_int64, 
+                        xdr_encode_uint64, xdr_decode_uint64,
+                        xdr_encode_int32, xdr_decode_int32, 
+                        xdr_encode_uint32, xdr_decode_uint32,
+                        xdr_encode_float32, xdr_decode_float32,
+                        xdr_encode_float64, xdr_decode_float64,
+                        xdr_encode_bytes, xdr_decode_bytes,
+                        xdr_encode_array_int, xdr_decode_array_int, 
+                        xdr_encode_array_uint, xdr_decode_array_uint,
+                        xdr_encode_array_int64, xdr_decode_array_int64, 
+                        xdr_encode_array_uint64, xdr_decode_array_uint64,
+                        xdr_encode_array_int32, xdr_decode_array_int32, 
+                        xdr_encode_array_uint32, xdr_decode_array_uint32,
+                        xdr_encode_array_float32, xdr_decode_array_float32,
+                        xdr_encode_array_float64, xdr_decode_array_float64,
+                        xdr_encode_array_bool, xdr_decode_array_bool,
+                        xdr_getpos, xdr_setpos, xdr_destroy,
+                        INT_SIZE, malloc;
+
+import crack.strutil StringArray;
+import crack.ascii hex;
+import crack.cont.array Array;
+@import crack.ann define;
+
+StringArray basicTypes = ["int", "uint", "int32", "uint32", "int64", "uint64",
+                          "byteptr", "float32", "float64",  "array[int]",
+                          "array[uint]", "array[int32]",    "array[uint32]",
+                          "array[int64]", "array[uint64]", "array[float32]",
+                          "array[float64]"
+                         ];
+StringArray crackTypes = ["int", "uint", "int32", "uint32", "int64", "uint64",
+                          "String", "float32", "float64", 
+                          "Array[int]", "Array[uint]", "Array[int32]",
+                          "Array[uint32]", "Array[int64]", "Array[uint64]",
+                          "Array[float32]", "Array[float64]",
+                         ];
+
+StringArray crackSizes = ["INT_SIZE", "INT_SIZE", "4", "4", "8", "8",
+                          ".size", "4", "8",
+                          ".count()", ".count()", ".count()", 
+                          ".count()", ".count()", ".count()",
+                          ".count()", ".count()"];
+                          
+StringArray serialFuncs = ["xdr_encode_int", "xdr_encode_uint",
+                           "xdr_encode_int32", "xdr_encode_uint32", 
+                           "xdr_encode_int64", "xdr_encode_uint64",
+                           "xdr_encode_bool", "xdr_encode_bytes", 
+                           "xdr_encode_float32", "xdr_encode_float64",
+                           "xdr_encode_array_int", "xdr_encode_array_uint",
+                           "xdr_encode_array_int32", "xdr_encode_array_uint32",
+                           "xdr_encode_array_int64", "xdr_encode_array_uint64",
+                           "xdr_encode_array_float32", "xdr_encode_array_float64"
+                          ];
+
+StringArray deserialFuncs = ["xdr_decode_int", "xdr_decode_uint",
+                           "xdr_decode_int32", "xdr_decode_uint32", 
+                           "xdr_decode_int64", "xdr_decode_uint64",
+                           "xdr_decode_bool", "xdr_decode_bytes", 
+                           "xdr_decode_float32", "xdr_decode_float64",
+                           "xdr_decode_array_int", "xdr_decode_array_uint",
+                           "xdr_decode_array_int32", "xdr_decode_array_uint32",
+                           "xdr_decode_array_int64", "xdr_decode_array_uint64",
+                           "xdr_decode_array_float32", "xdr_decode_array_float64"
+                          ];
+// Serializer for XDR formatter buffers
+class XDRBufferSerializer : Serializer {
+
+    ManagedBuffer _xdrBuf;
+    xdr _xdrStream;
+
+    oper init () {
+        _xdrBuf = ManagedBuffer(1024);
+        _xdrStream = xdrmem_create(_xdrBuf.buffer, _xdrBuf.cap, XDR_ENCODE);
+    }
+
+    oper init(uint bufsize) {
+        _xdrBuf = ManagedBuffer(bufsize);
+        _xdrStream = xdrmem_create(_xdrBuf.buffer, _xdrBuf.cap, XDR_ENCODE);
+    }
+
+    oper init(FDReader r) : _xdrBuf = null, _xdrStream = null {
+        throw InvalidResourceError("Not implemented");
+    }
+
+    Buffer getBuffer() {
+        return _xdrBuf;
+    }
+
+    @define formatMethod(T, s) {
+        void format(T val) {
+            xdr_encode_$$T(_xdrStream, val);
+            _xdrBuf.size += s;
+            int sz = s;
+        }
+    }
+
+    @formatMethod(int, INT_SIZE)
+    @formatMethod(uint, INT_SIZE)
+
+    @formatMethod(int32, 4)
+    @formatMethod(uint32, 4)
+
+    @formatMethod(int64, 8)
+    @formatMethod(uint64, 8)
+
+    @formatMethod(float32, 4)
+    @formatMethod(float64, 8)
+    @formatMethod(bool, 4)
+
+    @define formatMethodArray(T, s) {
+        void format(Array[T] val) {
+            uint cnt = val.count();
+            xdr_encode_array_$$T(_xdrStream, val.data.rep, cnt, cnt);
+            _xdrBuf.size += 4 + (s*cnt);
+        }
+    }
+
+    @formatMethodArray(int, INT_SIZE)
+    @formatMethodArray(uint, INT_SIZE)
+
+    @formatMethodArray(int32, 4)
+    @formatMethodArray(uint32, 4)
+
+    @formatMethodArray(int64, 8)
+    @formatMethodArray(uint64, 8)
+
+    @formatMethodArray(float32, 4)
+    @formatMethodArray(float64, 8)
+    @formatMethodArray(bool, 4)
+
+    void format(Buffer val) {
+        xdr_encode_bytes(_xdrStream, val.buffer, val.size);
+        _xdrBuf.size = xdr_getpos(_xdrStream);
+    }
+
+    // XDR uses 32 bits for each entry, so these are just aliases
+    void format(int16 val) {
+        xdr_encode_int32(_xdrStream, val);
+        _xdrBuf.size += 4;
+    }
+
+    void format(uint16 val) {
+        xdr_encode_uint32(_xdrStream, val);
+        _xdrBuf.size += 4;
+    }
+
+    // XDR doesn't do 16 bit values, so we encode them using 32 bits
+    void format(Array[int16] val) {
+        uint cnt = val.count();
+        xdr_encode_uint32(_xdrStream, uint32(cnt));
+        for (uint i=0; i<cnt; i++)
+        xdr_encode_int32(_xdrStream, int32(val[i]));
+        _xdrBuf.size = 4 + (4*cnt);
+    }
+
+    void format(Array[uint16] val) {
+        uint cnt = val.count();
+        xdr_encode_uint32(_xdrStream, uint32(cnt));
+        for (uint i=0; i<cnt; i++)
+        xdr_encode_uint32(_xdrStream, uint32(val[i]));
+        _xdrBuf.size = 4 + (4*cnt);
+    }
+
+
+    void write(Buffer buf) {
+        format(buf);
+    }
+
+    oper del() {
+      if (!(_xdrStream is null)) {
+        xdr_destroy(_xdrStream);
+      }
+    }
+}
+
+class XDRBufferMaterializer : Materializer {
+
+    Buffer _xdrBuf;
+    xdr _xdrStream;
+
+    oper init (Buffer buf) : _xdrBuf = buf {
+        _xdrStream = xdrmem_create(_xdrBuf.buffer, _xdrBuf.size, XDR_DECODE);
+    }
+
+    oper init(FDWriter w) : _xdrBuf = null {
+        throw InvalidResourceError("Not implemented");
+    }
+
+    Buffer getBuffer() {
+        return _xdrBuf;
+    }
+
+    void _handleError(String tpe) {
+        throw InvalidResourceError(FStr() `Error $(xdr_error()) materializing type $(tpe) at position $(xdr_getpos(_xdrStream))`);
+    }
+    
+
+    @define formatMethod(T) {
+        T format(T val) {
+            newval := xdr_decode_$$T(_xdrStream);
+            //if (xdr_error()) _handleError($T);
+            return newval;
+        }
+    }
+
+    @formatMethod(int)
+    @formatMethod(uint)
+
+    @formatMethod(int32)
+    @formatMethod(uint32)
+
+    @formatMethod(int64)
+    @formatMethod(uint64)
+
+    @formatMethod(float32)
+    @formatMethod(float64)
+    @formatMethod(bool)
+
+    uint32 _peekSize(){
+        uint32 size;
+        pos := xdr_getpos(_xdrStream); // Get stream position
+        size = format(size);           // Read size
+        xdr_setpos(_xdrStream, pos);   // Reset stream position
+        return size;
+    }
+
+    @define formatMethodArray(T) {
+        Array[T] format(Array[T] val) {
+            // Read the array length so we can allocate enough space
+            uint32 cnt = _peekSize();
+            // Create low-level array
+            array[T] AD = array[T](cnt);
+            size := xdr_decode_array_$$T(_xdrStream, AD, cnt);
+            if (size != cnt)
+                throw AssertionError("Different size array read than expected!");
+            Array[T] A = {AD, cnt};
+            return A
+        }
+    }
+
+    @formatMethodArray(int)
+    @formatMethodArray(uint)
+
+    @formatMethodArray(int32)
+    @formatMethodArray(uint32)
+
+    @formatMethodArray(int64)
+    @formatMethodArray(uint64)
+
+    @formatMethodArray(float32)
+    @formatMethodArray(float64)
+    @formatMethodArray(bool)
+
+    String format(String val) {
+        size := _peekSize();
+        byteptr buf = malloc(size);
+        newBuf := Buffer(buf, size);
+        xdr_decode_bytes(_xdrStream, newBuf.buffer, size);
+        return String(newBuf.buffer, newBuf.size, true);
+    }
+
+    // XDR uses 32 bits for each entry, so these are just aliases
+    int16 format(int16 val) {
+        newval := xdr_decode_int32(_xdrStream);
+        if (xdr_error()) _handleError("int16");
+        return int16(newval);
+    }
+
+    uint16 format(uint16 val) {
+        newval := xdr_decode_uint32(_xdrStream);
+        if (xdr_error()) _handleError("uint16");
+        return uint16(newval);
+    }
+
+    // XDR doesn't do 16 bit values, so we encode them using 32 bits
+    @define formatMethodArrayUnsupported(T, rT) {
+        Array[T] format(Array[T] val) {
+            // Read the array length so we can allocate enough space
+            uint32 cnt = _peekSize();
+            // Create low-level array
+            array[T] AD = array[T](cnt);
+            
+            uint i;
+            for (i=0; i < cnt; i++) {
+                AD[i] = T(xdr_decode_$$rT(_xdrStream));;
+                if (xdr_error()) _handleError($T);
+            }
+
+            if (i != cnt)
+                throw AssertionError("Different size array read than expected!");
+
+            Array[T] A = {AD, cnt};
+            return A;
+        }
+    }
+
+    @formatMethodArrayUnsupported(int16, int32)
+    @formatMethodArrayUnsupported(uint16, uint32)
+
+    void write(Buffer buf){
+        format(buf);
+    }
+
+    oper del() {
+      if (!(_xdrStream is null)) {
+        xdr_destroy(_xdrStream);
+      }
+    }
+}
