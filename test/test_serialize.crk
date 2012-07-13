@@ -1,0 +1,112 @@
+// Class serialization/deserialization using supplied functions
+import crack.ascii hex;
+import crack.cont.array Array;
+import crack.io Formatter, Writer, cout, FDReader, FDWriter, FStr;
+import crack.lang InvalidArgumentError;
+import whip.serializer Materializer, Serializer, Serializable, cmp;
+import whip.xdr_serializer XDRBufferSerializer, XDRBufferMaterializer;
+
+
+// This is what we will autogenerate
+class testSerialize_Base : Serializable {
+
+    int int1 = -1;
+    uint uint2 = 1;
+    int32 int3 = 2;
+    uint32 uint4 = 3;
+    String S = "Hello";
+    Array[int] A = [10];
+
+    void serialize(Serializer sr) {
+        sr.format(int1);
+        sr.format(uint2);
+        sr.format(int3);
+        sr.format(uint4);
+        sr.format(S);
+        sr.format(A);
+    }
+
+    void materialize(Materializer m) {
+        int1 = m.format(int1);
+        uint2 = m.format(uint2);
+        int3 = m.format(int3);
+        uint4 = m.format(uint4);
+        S = m.format(S);
+        A = m.format(A);
+    }
+
+    uint sizeNeeded(){
+        uint cnt;
+        cnt+=8; //int1
+        cnt+=8; //uint2
+        cnt+=4; //int3
+        cnt+=4; //uint4
+        cnt+=S.size; // S
+        cnt+=4+A.count()*4; //A
+        return cnt;
+    }
+
+    int cmp(Object obj){
+      if (!obj.isa(testSerialize_Base))
+        throw InvalidArgumentError("Comparing testSerialize to different object");
+      other := testSerialize_Base.cast(obj);
+      int result = 0;
+
+      result = cmp(int1, other.int1);
+      if (result) return result;
+
+      result = cmp(uint2, other.uint2);
+      if (result) return result;
+
+      result = cmp(int3, other.int3);
+      if (result) return result;
+
+      result = cmp(uint4, other.uint4);
+      if (result) return result;
+
+      result = cmp(S, other.S);
+      if (result) return result;
+
+      result = cmp(A, other.A);
+      return result;
+    }
+
+}
+
+class testSerialize : testSerialize_Base {
+
+    void formatTo(Formatter fmt) {
+        fmt.write("testSerialize {");
+        fmt `   int int1 = $int1\n`;
+        fmt `   uint2 = $uint2\n`;
+        fmt `   int3 = $int3\n`;
+        fmt `   uint32 uint4 = $uint4\n`;
+        fmt.write("}");
+    }
+
+}
+
+testSerialize test, test2;
+
+for (uint i=0; i<10000000; i++){
+
+  test = testSerialize();
+  sXDR := XDRBufferSerializer(test.sizeNeeded());
+  test.serialize(sXDR);
+
+
+  mXDR := XDRBufferMaterializer(sXDR.getBuffer());
+  test2 = testSerialize();
+  test2.int1 = 999;
+  test2.uint2 = 999;
+  test2.int3 = 999;
+  test2.uint4 = 999;
+  test2.S = "Random string";
+  test2.A= Array[int]![1,2,3,4];
+
+  test2.materialize(mXDR);
+}
+
+if (test == test2) cout `ok\n`;
+
+
