@@ -2,11 +2,12 @@
 // Copyright 2012 Conrad Steenberg <conrad.steenberg@gmail.com>
 
 import crack.io cout;
-import whip.generator ClassGenerator, Message;
+import whip.generator Message;
+import whip.crack_generator CrackClassGenerator;
 import whip.xdr_serializer crackTypes, crackSizes,
                            XDRBufferSerializer, XDRBufferMaterializer;
 
-ClassGenerator gen = {crackTypes, crackSizes};
+CrackClassGenerator gen = {crackTypes, crackSizes};
 
 Message msg = {};
 msg.addField("int1", "int", "-1");
