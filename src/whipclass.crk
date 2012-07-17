@@ -1,0 +1,40 @@
+// Class generator command-line utility
+// Copyright 2012 Conrad Steenberg <conrad.steenberg@gmail.com>
+// 7/17/2012
+
+import crack.cmdline CmdOptions, Option, CMD_STR, CMD_INT, CMD_FLOAT, CMD_BOOL;
+import crack.io cout, FStr;
+import crack.runtime exit;
+import crack.sys argv;
+
+import whip.utils.crack_generator CrackClassGenerator;
+import whip.utils.generator Message;
+import whip.utils.idl_parser idlParser;
+import whip.utils.ruby_generator RubyClassGenerator;
+import whip.utils.ruby_xdr_serializer rubyTypes, rubySizes;
+import whip.xdr_serializer crackTypes, crackSizes;
+
+CmdOptions options = [Option("help",   "h", "Show help message", "f", CMD_BOOL),
+                      Option("file",   "f", "IDL file to parse", "", CMD_STR),
+                      Option("out",    "o", "Name of output file", "", CMD_STR),
+                      Option("lang",   "l", "Output language", "crack", CMD_STR)];
+
+// Parse options passed by the system
+options.parse(argv, false);
+
+void usage(CmdOptions options){
+  options.printUsage(FStr() `Usage: $(argv[0]) [OPT1] [OPT2] file\n`);
+}
+
+RubyClassGenerator rgen = {rubyTypes, rubySizes};
+CrackClassGenerator cgen = {crackTypes, crackSizes};
+
+parser := idlParser(cgen);
+if  (options.getBool("help") || options.getString("file").size == 0){
+  usage(options);
+  exit(0);
+}
+
+parser.parseFile(options.getString("file"));
+cgen.create(cout);
+

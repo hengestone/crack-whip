@@ -88,7 +88,7 @@ class testSerialize : testSerialize_Base {
 
 testSerialize test, test2;
 
-for (uint i=0; i<10000000; i++){
+for (uint i=0; i<100000; i++){
 
   test = testSerialize();
   sXDR := XDRBufferSerializer(test.sizeNeeded());
