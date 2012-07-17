@@ -7,6 +7,7 @@ import crack.lang KeyError, InvalidArgumentError, Formatter;
 import crack.strutil StringArray;
 
 FStr sfmt = {};
+indent := "  ";
 
 class Member {
   String type, default;
@@ -30,6 +31,19 @@ class Message {
 
   void addField(String name, String type) {
     addField(name, type, null);
+  }
+
+  void formatTo(Formatter fmt){
+    for (field :in fields){
+      if (field.val.isArray)
+        fmt `$(indent)Array[$(field.val.type)]`;
+      else
+        fmt `$(indent)$(field.val.type)`;
+      fmt ` $(field.key) `;
+      if (!(field is null))
+        fmt ` = $(field.val.default)`;
+      fmt `;\n`;
+    }
   }
 }
 
@@ -86,4 +100,12 @@ class Message {
 
   // Write all class definition to writer
   @abstract int create(Formatter fmt);
+
+  void formatTo(Formatter fmt) {
+    for (item :in messages) {
+      fmt `message $(item.key) {\n`;
+      fmt `$(item.val)`;
+      fmt `}\n\n`;
+    }
+  }
 }

@@ -3,11 +3,10 @@
 
 import crack.io cout;
 import whip.utils.generator Message;
-import whip.utils.crack_generator CrackClassGenerator;
-import whip.xdr_serializer crackTypes, crackSizes,
-                           XDRBufferSerializer, XDRBufferMaterializer;
+import whip.utils.ruby_generator RubyClassGenerator;
+import whip.utils.ruby_xdr_serializer rubyTypes, rubySizes;
 
-CrackClassGenerator gen = {crackTypes, crackSizes};
+RubyClassGenerator gen = {rubyTypes, rubySizes};
 
 Message msg = {};
 msg.addField("int1", "int", "-1");

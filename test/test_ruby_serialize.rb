@@ -1,50 +1,6 @@
 # Example serializer/materializer base class
-require "xdr"
 require "stringio"
-require "hex_string"
-include HexString
-
-class XDRSerializer < XDR::Writer
-
-  attr_accessor :int32_lambda
-  def initialize(io)
-    @io = io
-    @int32_lambda = lambda {|v| int32(v)}
-    @uint32_lambda = lambda {|v| uint32(v)}
-    @int64_lambda = lambda {|v| int64(v)}
-    @uint64_lambda = lambda {|v| uint64(v)}
-    @float32_lambda = lambda {|v| float32(v)}
-    @float64_lambda = lambda {|v| float64(v)}
-  end
-
-  def array(a, f)
-    l = a.length()
-    uint32(l)
-    a.each{|e| f.call(e) }
-    return l
-  end
-end
-
-class XDRMaterializer < XDR::Reader
-
-  def initialize(io)
-    @io = io
-    @int32_lambda = lambda {|v| int32()}
-    @uint32_lambda = lambda {|v| uint32()}
-    @int64_lambda = lambda {|v| int64()}
-    @uint64_lambda = lambda {|v| uint64()}
-    @float32_lambda = lambda {|v| float32()}
-    @float64_lambda = lambda {|v| float64()}
-  end
-
-  def array(a, f)
-    a = Array.new()
-    l = uint32()
-    l.times {|i| a.push(f()) }
-    return a
-  end
-end
-
+require "xdr_serializer"
 
 class TestSerialize_Base
   attr_accessor :int1, :uint2, :int3, :uint4, :S, :A
@@ -92,11 +48,27 @@ end
 class TestSerialize < TestSerialize_Base
 end
 
-sio = StringIO.new(String.new())
-S = XDRSerializer.new(sio)
+1000.times{|i|
+  sio = StringIO.new(String.new())
+  sr = XDRUtils::XDRSerializer.new(sio)
 
-test = TestSerialize.new()
-test.serialize(S)
-hx = sio.string().to_hex_string(false)
-puts("hex = #{hx}")
+  test = TestSerialize.new()
+  test.serialize(sr)
+  serialized = sio.string()
+  #~ hx = serialized.to_hex_string(false)
+  #~ puts("hex = #{hx}")
+
+  mio = StringIO.new(serialized)
+  mt = XDRUtils::XDRMaterializer.new(mio)
+
+  test2 = TestSerialize.new()
+  test2.int1 = 0
+  test2.uint2 = 0
+  test2.int3 = 0
+  test2.uint4 = 0
+  test2.S=""
+  test2.A=[]
+
+  test2.materialize(mt)
+}
 
