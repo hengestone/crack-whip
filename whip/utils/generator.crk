@@ -1,9 +1,10 @@
 // Serializable/Materializable base class writer
 // Copyright 2012 Conrad Steenberg <conrad.steenberg@gmail.com>
 
+import crack.hash.murmur3 Murmur3_32;
 import crack.cont.hashmap HashMap, OrderedHashMap;
-import crack.io FStr;
-import crack.lang KeyError, InvalidArgumentError, Formatter;
+import crack.io FStr, StringFormatter;
+import crack.lang KeyError, Buffer, InvalidArgumentError, Formatter;
 import crack.strutil StringArray;
 
 FStr sfmt = {};
@@ -33,7 +34,30 @@ class Message {
     addField(name, type, null);
   }
 
-  void formatTo(Formatter fmt){
+  void signature(Formatter fmt) {
+    fmt.write('(');
+    bool first = true;
+    for (field :in fields) {
+      if (!first)
+        fmt.write(', ');
+      if (field.val.isArray)
+        fmt `$(indent)Array[$(field.val.type)]`;
+      else
+        fmt `$(indent)$(field.val.type)`;
+      fmt ` $(field.key)`;
+    }
+    fmt.write(')');
+  }
+
+  uint32 hash(Buffer name){
+    StringFormatter sfmt = {};
+    signature(sfmt);
+    h := Murmur3_32(name);
+    h.update(sfmt.string());
+    return h.asUInt32();
+  }
+
+  void formatTo(Formatter fmt) {
     for (field :in fields){
       if (field.val.isArray)
         fmt `$(indent)Array[$(field.val.type)]`;
@@ -100,6 +124,16 @@ class Message {
 
   // Write all class definition to writer
   @abstract int create(Formatter fmt);
+
+  void signature(Formatter fmt) {
+    for (item :in messages) {
+      fmt `message $(item.key) {\n`;
+      fmt `$(item.val)`;
+      fmt `}\n\n`;
+    }
+  }
+
+  
 
   void formatTo(Formatter fmt) {
     for (item :in messages) {

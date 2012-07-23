@@ -1,0 +1,17 @@
+// Class serialization/deserialization using supplied functions
+import crack.strutil StringArray;
+
+StringArray pythonTypes = ["int", "uint", "int32", "uint32", "int64", "uint64",
+                          "String", "float32", "float64", 
+                          "Array[int]", "Array[uint]", "Array[int32]",
+                          "Array[uint32]", "Array[int64]", "Array[uint64]",
+                          "Array[float32]", "Array[float64]",
+                         ];
+
+StringArray pythonSizes = ["INT_SIZE", "INT_SIZE", "4", "4", "8", "8",
+                          ".length()", "4", "8",
+                          ".length()*INT_SIZE", ".length()*INT_SIZE",
+                          ".length()*4", ".length()*4",
+                          ".length()*8", ".length()*8",
+                          ".length()*4", ".length()*8"];
+                          

@@ -1,2 +1,8 @@
 message testSerialize {
+    int int1 = -1;
+    uint uint2 = 1;
+    int32 int3 = 2;
+    uint32 uint4 = 3;
+    String S = "Hello";
+    Array[int] A = [10];
 }

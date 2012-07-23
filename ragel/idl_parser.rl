@@ -1,18 +1,16 @@
 // Copyright 2012 Conrad Steenberg <conrad.steenberg@gmail.com>
 // 7/17/2012
 
-import crack.ascii parseInt, parseBool, radix;
-import crack.cont.array Array;
 import crack.cont.hashmap OrderedHashMap;
 import crack.cont.list List;
-import crack.exp.file File;
-import crack.io FStr, cout, cerr, StringFormatter, Reader, StringWriter;
+import crack.cont.array Array;
+import crack.io FStr, cout, cerr, Reader;
 import crack.lang AppendBuffer, InvalidResourceError, Buffer, Formatter,
-                  WriteBuffer, Exception, IndexError, KeyError, CString;
-import crack.math min, strtof;
+                  Exception, IndexError, CString;
 import crack.runtime memmove, mmap, munmap, Stat, fopen, PROT_READ, MAP_PRIVATE,
                     stat, fileno;
 import crack.sys strerror;
+import crack.math min;
 import crack.io.readers PageBufferString, PageBufferReader, PageBuffer;
 import whip.utils.generator Message, ClassGenerator;
 
@@ -27,6 +25,8 @@ class idlParser {
 
     ClassGenerator gen;
     PageBuffer data;
+    OrderedHashMap[String, bool] filesDone = {};
+    List[String] filesTodo = {};
     uint data_size = 0, eof = 0, s, e, p, pe, cs, ts, te, act, okp, bufsize = 1024*1024;
     int line = 1, col = 1;
 
@@ -45,22 +45,104 @@ class idlParser {
         machine spec;
 
         action buffer { _readTo(p); s = p; }
-        action nameStart { s = e = p; }
-        action nameEnd {
+        action nameStart {
+          cout `NameStart: '$(data.substr(s, e - s))'\n`;
+          s = e = p;
+        }
+        action messageName {
+          if (curMsgName is null) {
+            e = p;
+            curMsgName = data.substr(s, e - s);
+            cout `curMsgName = $curMsgName\n`;
+            curMsg = Message();
+          }
+          else {
+            cout `curMsgName already set\n`;
+          }
+        }
+
+        action fieldType {
           e = p;
-          curName = data.substr(s, e - s);
-          cout `curName = $curName\n`;
+          curFieldType = data.substr(s, e - s);
+          cout `curFieldType = $curFieldType\n`;
+          curFieldName = null;
+          curFieldDefault = null;
+          foundEq = false;
+          fieldAdded = false;
+        }
+
+        action fieldName {
+          if (curFieldName is null) {
+            e = p;
+            curFieldName = data.substr(s, e - s);
+            cout `curFieldName = $curFieldName\n`;
+          }
+        }
+
+        action foundEq {
+          foundEq = true;
+        }
+
+        action defaultVal {
+          e = p;
+          curFieldDefault = data.substr(s, e - s);
+          cout `curFieldDefault = $curFieldDefault\n`;
+        }
+
+        action fieldEnd {
+          if (curFieldName is null) { // We got a field name followed by a ;
+            e = p;
+            curFieldName = data.substr(s, e - s);
+            cout `curFieldName = $curFieldName\n`;
+          } else if (foundEq && (curFieldDefault is null)) { // Got = .. ;
+            e = p;
+            curFieldDefault = data.substr(s, e - s);
+            cout `curFieldDefault = $curFieldDefault\n`;
+          }
+
+          if (!fieldAdded) {
+            curMsg.addField(curFieldName, curFieldType, curFieldDefault);
+            fieldAdded = true;
+          }
+        }
+
+        action messageEnd {
+          cout `messageEnd\n`;
+          gen.addMessage(curMsgName, curMsg);
+          curMsgName = null;
+        }
+
+        action fileEnd {
+          e = p;
+          if (true) {
+            incFileName := data.substr(s, e - s);
+            cout `incfileName = $incFileName\n`;
+          }
         }
 
         eol = [\r\n]+;
         varAlpha = [a-zA-Z_];
         varAlphaNum = [a-zA-Z_0-9\-]+;
+        typeAlphaNum = [a-zA-Z_0-9\-\[\]]+;
+        valueAlphaNumStart = [0-9\-\.\[\'\"\{];
+        valueAlphaNumEnd = [0-9\-\.\]\'\"\}];
         varName = varAlpha varAlphaNum*;
+        varType =varAlpha typeAlphaNum*;
 
-        message = 'message' space+ varName >nameStart  space+ >nameEnd '{' space* eol
-                  '}'space* eol;
+        field = varType >nameStart space+ >fieldType
+                varName >nameStart (space* >fieldName)
+                ('=' >fieldName >foundEq space*
+                valueAlphaNumStart >nameStart [^;]*
+                space* >defaultVal)? ';' >fieldEnd;
 
-        main := (space* message space*)+;
+        message = 'message' space+ varName >nameStart (space* >messageName)
+                 '{' >messageName
+                  (space* field)* space*
+                 '}' >messageEnd;
+        importfile = 'import' space+ '"' 
+                  [^\"]+ >nameStart '"' >fileEnd space* ';';
+
+        main := (space+ | importfile | message)+;
 
     }%%
 
@@ -77,8 +159,10 @@ class idlParser {
     int _parse() {    // Do the first read. 
         if (data is null)
             InvalidResourceError(FStr() `Error parsing IDL, null data pointer supplied`);
-        uint s, e, parseLoops = 0;
-        String curName, curMsg;
+        uint parseLoops = 0;
+        String curMsgName, curFieldName, curFieldType, curFieldDefault;
+        Message curMsg;
+        bool foundEq = false, fieldAdded = false;
 
         pe = data_size;
         cs = spec_start;
@@ -143,7 +227,7 @@ class idlParser {
             else
                 throw InvalidResourceError(FStr() `$fname: $(strerror())`);
         }
-        return null;
+        return 0;
     }
 
     void formatTo(Formatter fmt){
