@@ -2,6 +2,7 @@
 // Copyright 2012 Conrad Steenberg <conrad.steenberg@gmail.com>
 
 import crack.ascii radix, toLower;
+import crack.lang InvalidArgumentError;
 import crack.io Formatter;
 import crack.runtime usecs;
 import crack.strutil StringArray;
@@ -16,9 +17,12 @@ String preamble = sfmt
 
 import crack.ascii radix;
 import crack.cont.array Array;
+import crack.io FStr;
 import crack.lang InvalidArgumentError;
 import crack.runtime INT_SIZE;
-import whip.serializer Serializer, Materializer;\n
+import whip.serializer Serializer, Materializer;
+
+FStr sfmt = {};\n
 `;
 
 // Generate class definitions
@@ -52,8 +56,8 @@ class CrackClassGenerator : ClassGenerator {
   // Write serialization method
   int _writeSerialize(Formatter fmt, Message msg) {
     uint cnt = 0;
-    fmt `\n$(indent)void serialize(Serializer sr, bool writeId) {\n`;
-    fmt `$(indent*2)if (writeId) sr.format(__id);\n`;
+    fmt `\n$(indent)void serialize(Serializer sr) {\n`;
+    fmt `$(indent*2)sr.format(__id); // Always write the id\n`;
 
     for (fitem :in msg.fields){
       fname := fitem.key;
@@ -65,10 +69,12 @@ class CrackClassGenerator : ClassGenerator {
         if (member.type.size > 5 && member.type.substr(0, 5) == "Array") {
           l := member.type.size;
           subtype := toLower(member.type.slice(6, l - 1));
-          if (builtins.hasKey(member.type))
-            fmt `$(indent*2)sr.array(@$(fname), sr.$(subtype)_lambda)\n`;
+          if (!builtins.hasKey(subtype)) {
+            fmt I`$(indent*2)sr.format(uint32($fname.count()));\n \
+                  $(indent*2)for (uint __i=0; __i< $fname.count(); __i++) $fname[__i].serialize(sr)\n`;
+          }
           else
-            fmt `$(indent*2)sr.array(@$(fname), $(subtype))\n`;
+            throw InvalidArgumentError(sfmt `Unable to create serialization for $fname = $(member.type)`);
         }
         else
           fmt `$(indent*2)$(fname).serialize(sr);\n`;
@@ -83,20 +89,33 @@ class CrackClassGenerator : ClassGenerator {
   int _writeMaterialize(Formatter fmt, Message msg) {
     uint cnt = 0;
     fmt I`\n$(indent)void materialize(Materializer m) {\n \
-         $(indent*2)uint32 readId;\n \
-         $(indent*2)readId = fmt.format(readId);\n
-         $(indent*2)if (readId != __id)\n \
+         $(indent*2)uint32 __in; // an input uint32\n \
+         $(indent*2)__in = m.format(__in); // Always read the id\n \
+         $(indent*2)if (__in != __id)\n \
          $(indent*3)throw InvalidArgumentError(`;
          fmt.write("sfmt `Invalid message signature 0x");
-         fmt.format("$(radix(readId, 16)), expected 0x$(radix(__id, 16))`;\n`");
+         fmt.format("$(radix(__in, 16)), expected 0x$(radix(__id, 16))`);\n");
 
     for (fitem :in msg.fields){
       fname := fitem.key;
       member := fitem.val;
       if (builtins.hasKey(member.type))
         fmt `$(indent*2)$fname = m.format($fname);\n`;
-      else
-        fmt `$(indent*2)$(fname).materialize(m);\n`;
+      else {
+        if (member.type.size > 5 && member.type.substr(0, 5) == "Array") {
+          l := member.type.size;
+          subtype := toLower(member.type.slice(6, l - 1));
+          if (!builtins.hasKey(subtype)) {
+            fmt I`$(indent*2)__in = m.format(__in);\n \
+                  $(indent*2)$fname = Array[$subtype](__in);\n \
+                  $(indent*2)for (uint __i=0; __i< __in; __i++) $fname[__i] = $subtype.materialize(m);\n\n`;
+          }
+          else
+            throw InvalidArgumentError(sfmt `Unable to create materialization for $fname = $(member.type)`);
+        }
+        else 
+          fmt `$(indent*2)$(fname).materialize(m);\n`;
+      }
       cnt++;
     }
     fmt `$(indent)}\n`;
@@ -105,9 +124,9 @@ class CrackClassGenerator : ClassGenerator {
 
   // Write sizeNeeded method
   int _writeSize(Formatter fmt, Message msg) {
-    uint cnt = 4;
+    uint cnt = 0;
     fmt `\n$(indent)uint sizeNeeded() {\n`;
-    fmt `$(indent*2)uint cnt = 0;\n`;
+    fmt `$(indent*2)uint cnt = 4;  // The 32bit id is always there\n`;
 
     for (fitem :in msg.fields) {
       fname := fitem.key;

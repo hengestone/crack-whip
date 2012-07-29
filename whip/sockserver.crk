@@ -35,8 +35,8 @@ class InterpreterContainer {
   }
 
   void __addFileHandle(FileHandle fh){
-    _poller.add(fh, POLLIN);
-    _poller.setEvents(fh, POLLIN);
+    _poller.add(fh, POLLIN|POLLERR);
+    _poller.setEvents(fh, POLLIN|POLLERR);
     log.debug(FStr() `__addFileHandle $fh`);
   }
 
@@ -75,6 +75,7 @@ class InterpreterContainer {
 
     // Check all interpreters to see if they still have valid pollables
     for (intpItem :in _watchedInterpreters){
+      //log.debug(FStr() `getting fileHandles for $(intpItem.key)`);
       p := intpItem.key.getFileHandles();
       log.debug(FStr() `$p, count=$(p.count())`); 
       if (p.count() == 0){
@@ -122,11 +123,19 @@ class InterpreterContainer {
       if (POLLIN & evt.revents) {
           log.debug(FStr() `  got client read: $(evt.pollable)`);
           evIntp = _watchedFileHandles[evt.pollable];
-          if (evIntp.dataReady(evt.pollable) > 0) changed[evIntp.id()] = evIntp;
+          old_status := evIntp.status;
+          if (evIntp.readHandler(evt.pollable) > 0 && evIntp.status != old_status)
+            changed[evIntp.id()] = evIntp;
           if (evIntp.status == INTP_REQUEST_STOP) // to stop
             __toRemove.append(evt.pollable);
       } else if (POLLOUT & evt.revents) {
-          log.debug(FStr() `  got client writable, ignoring`);
+          log.debug(FStr() `  got client writable: $(evt.pollable)`);
+          evIntp = _watchedFileHandles[evt.pollable];
+          old_status := evIntp.status;
+          if (evIntp.writeHandler(evt.pollable) > 0 && evIntp.status != old_status)
+            changed[evIntp.id()] = evIntp;
+          if (evIntp.status == INTP_REQUEST_STOP) // to stop
+            __toRemove.append(evt.pollable);
       } else if (POLLERR & evt.revents) {
           log.debug(FStr() `  error on socket $(evt.pollable)`);
       } else {

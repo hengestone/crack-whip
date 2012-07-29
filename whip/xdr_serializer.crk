@@ -120,7 +120,7 @@ class XDRBufferSerializer : Serializer {
     @define formatMethodArray(T, s) {
         void format(Array[T] val) {
             uint cnt = val.count();
-            xdr_encode_array_$$T(_xdrStream, val.data.rep, cnt, cnt);
+            xdr_encode_array_$$T(_xdrStream, val.data(), cnt, cnt);
             _xdrBuf.size += 4 + (s*cnt);
         }
     }
@@ -243,7 +243,7 @@ class XDRBufferMaterializer : Materializer {
             size := xdr_decode_array_$$T(_xdrStream, AD, cnt);
             if (size != cnt)
                 throw AssertionError("Different size array read than expected!");
-            Array[T] A = {AD, cnt};
+            Array[T] A = {AD, cnt, cnt, true};
             return A
         }
     }
@@ -299,7 +299,7 @@ class XDRBufferMaterializer : Materializer {
             if (i != cnt)
                 throw AssertionError("Different size array read than expected!");
 
-            Array[T] A = {AD, cnt};
+            Array[T] A = {AD, cnt, cnt, true};
             return A;
         }
     }

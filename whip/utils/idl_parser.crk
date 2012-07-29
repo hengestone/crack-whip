@@ -44,7 +44,7 @@ class idlParser {
     }
 
     
-# line 147 "ragel/idl_parser.rl"
+# line 135 "ragel/idl_parser.rl"
 
 
     
@@ -287,7 +287,7 @@ uint spec_error = 0;
 uint  spec_en_main = 1;
 
 
-# line 150 "ragel/idl_parser.rl"
+# line 138 "ragel/idl_parser.rl"
 
     void reset(){
         p = s = 0;
@@ -296,7 +296,7 @@ uint  spec_en_main = 1;
 # line 297 "whip/utils/idl_parser.crk"
   cs = spec_start;
 
-# line 155 "ragel/idl_parser.rl"
+# line 143 "ragel/idl_parser.rl"
     }
 
     oper init (ClassGenerator gen0) : gen = gen0 { }
@@ -377,30 +377,24 @@ uint  spec_en_main = 1;
     if (_tempval  == 0) { // FROM_STATE_ACTION_SWITCH
 # line 48 "ragel/idl_parser.rl" # end of line directive
     
-          cout `NameStart: '$(data.substr(s, e - s))'\n`;
           s = e = p;
             // ACTION
     }
     else  if (_tempval  == 1) { // FROM_STATE_ACTION_SWITCH
-# line 52 "ragel/idl_parser.rl" # end of line directive
+# line 51 "ragel/idl_parser.rl" # end of line directive
     
           if (curMsgName is null) {
             e = p;
             curMsgName = data.substr(s, e - s);
-            cout `curMsgName = $curMsgName\n`;
             curMsg = Message();
-          }
-          else {
-            cout `curMsgName already set\n`;
           }
             // ACTION
     }
     else  if (_tempval  == 2) { // FROM_STATE_ACTION_SWITCH
-# line 64 "ragel/idl_parser.rl" # end of line directive
+# line 59 "ragel/idl_parser.rl" # end of line directive
     
           e = p;
           curFieldType = data.substr(s, e - s);
-          cout `curFieldType = $curFieldType\n`;
           curFieldName = null;
           curFieldDefault = null;
           foundEq = false;
@@ -408,40 +402,36 @@ uint  spec_en_main = 1;
             // ACTION
     }
     else  if (_tempval  == 3) { // FROM_STATE_ACTION_SWITCH
-# line 74 "ragel/idl_parser.rl" # end of line directive
+# line 68 "ragel/idl_parser.rl" # end of line directive
     
           if (curFieldName is null) {
             e = p;
             curFieldName = data.substr(s, e - s);
-            cout `curFieldName = $curFieldName\n`;
           }
             // ACTION
     }
     else  if (_tempval  == 4) { // FROM_STATE_ACTION_SWITCH
-# line 82 "ragel/idl_parser.rl" # end of line directive
+# line 75 "ragel/idl_parser.rl" # end of line directive
     
           foundEq = true;
             // ACTION
     }
     else  if (_tempval  == 5) { // FROM_STATE_ACTION_SWITCH
-# line 86 "ragel/idl_parser.rl" # end of line directive
+# line 79 "ragel/idl_parser.rl" # end of line directive
     
           e = p;
           curFieldDefault = data.substr(s, e - s);
-          cout `curFieldDefault = $curFieldDefault\n`;
             // ACTION
     }
     else  if (_tempval  == 6) { // FROM_STATE_ACTION_SWITCH
-# line 92 "ragel/idl_parser.rl" # end of line directive
+# line 84 "ragel/idl_parser.rl" # end of line directive
     
           if (curFieldName is null) { // We got a field name followed by a ;
             e = p;
             curFieldName = data.substr(s, e - s);
-            cout `curFieldName = $curFieldName\n`;
           } else if (foundEq && (curFieldDefault is null)) { // Got = .. ;
             e = p;
             curFieldDefault = data.substr(s, e - s);
-            cout `curFieldDefault = $curFieldDefault\n`;
           }
 
           if (!fieldAdded) {
@@ -451,24 +441,22 @@ uint  spec_en_main = 1;
             // ACTION
     }
     else  if (_tempval  == 7) { // FROM_STATE_ACTION_SWITCH
-# line 109 "ragel/idl_parser.rl" # end of line directive
+# line 99 "ragel/idl_parser.rl" # end of line directive
     
-          cout `messageEnd\n`;
           gen.addMessage(curMsgName, curMsg);
           curMsgName = null;
             // ACTION
     }
     else  if (_tempval  == 8) { // FROM_STATE_ACTION_SWITCH
-# line 115 "ragel/idl_parser.rl" # end of line directive
+# line 104 "ragel/idl_parser.rl" # end of line directive
     
           e = p;
           if (true) {
             incFileName := data.substr(s, e - s);
-            cout `incfileName = $incFileName\n`;
           }
             // ACTION
     }
-# line 472 "whip/utils/idl_parser.crk" # end of line directive
+# line 460 "whip/utils/idl_parser.crk" # end of line directive
     # end action switch
       } # while _nacts
     }
@@ -495,7 +483,7 @@ uint  spec_en_main = 1;
     } # endif _goto_level <= out
 
   # end of execute block
-# line 172 "ragel/idl_parser.rl"
+# line 160 "ragel/idl_parser.rl"
         // ------ End exec -----------------------------------------------------------
             _readTo(pe+1); // Update pe just in case we got stuck at the end of a page by accident
             if (p < pe ) parseLoops++;
