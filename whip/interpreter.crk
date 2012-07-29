@@ -77,12 +77,15 @@ class Interpreter {
   @abstract
   Array[FileHandle] getFileHandles();
 
-  int id(){
+  int id() {
     return _id;
   }
 
   @abstract
-  int dataReady(FileHandle f);
+  int readHandler(FileHandle f);
+
+  @abstract
+  int writeHandler(FileHandle f);
 
   @abstract
   int start();
@@ -237,7 +240,7 @@ class SimpleInterpreter : Interpreter {
     return INTP_SUBMIT; // TODO, get real number of bytes sent
   }
 
-  int dataReady(FileHandle f){
+  int readHandler(FileHandle f){
     int changes = 0;
     int newStatus = status, s;
     oldStatus := status;
@@ -282,6 +285,11 @@ class SimpleInterpreter : Interpreter {
         log.error(FStr() `readline failed: $(strerror())`);
     }
     return changes;
+  }
+
+  // These interpreters can always write to sockets, no need to use handler
+  int writeHandler(FileHandle fd) {
+    return 0;
   }
 
   oper del(){

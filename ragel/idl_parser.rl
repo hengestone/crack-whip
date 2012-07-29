@@ -46,25 +46,19 @@ class idlParser {
 
         action buffer { _readTo(p); s = p; }
         action nameStart {
-          cout `NameStart: '$(data.substr(s, e - s))'\n`;
           s = e = p;
         }
         action messageName {
           if (curMsgName is null) {
             e = p;
             curMsgName = data.substr(s, e - s);
-            cout `curMsgName = $curMsgName\n`;
             curMsg = Message();
-          }
-          else {
-            cout `curMsgName already set\n`;
           }
         }
 
         action fieldType {
           e = p;
           curFieldType = data.substr(s, e - s);
-          cout `curFieldType = $curFieldType\n`;
           curFieldName = null;
           curFieldDefault = null;
           foundEq = false;
@@ -75,7 +69,6 @@ class idlParser {
           if (curFieldName is null) {
             e = p;
             curFieldName = data.substr(s, e - s);
-            cout `curFieldName = $curFieldName\n`;
           }
         }
 
@@ -86,18 +79,15 @@ class idlParser {
         action defaultVal {
           e = p;
           curFieldDefault = data.substr(s, e - s);
-          cout `curFieldDefault = $curFieldDefault\n`;
         }
 
         action fieldEnd {
           if (curFieldName is null) { // We got a field name followed by a ;
             e = p;
             curFieldName = data.substr(s, e - s);
-            cout `curFieldName = $curFieldName\n`;
           } else if (foundEq && (curFieldDefault is null)) { // Got = .. ;
             e = p;
             curFieldDefault = data.substr(s, e - s);
-            cout `curFieldDefault = $curFieldDefault\n`;
           }
 
           if (!fieldAdded) {
@@ -107,7 +97,6 @@ class idlParser {
         }
 
         action messageEnd {
-          cout `messageEnd\n`;
           gen.addMessage(curMsgName, curMsg);
           curMsgName = null;
         }
@@ -116,7 +105,6 @@ class idlParser {
           e = p;
           if (true) {
             incFileName := data.substr(s, e - s);
-            cout `incfileName = $incFileName\n`;
           }
         }
 

@@ -1,7 +1,7 @@
 // Serializable/Materializable base class writer
 // Copyright 2012 Conrad Steenberg <conrad.steenberg@gmail.com>
 
-import crack.ascii toLower, capitalize;
+import crack.ascii toLower, capitalize, radix;
 import crack.io Formatter;
 import crack.strutil StringArray;
 import crack.time Date;
@@ -19,6 +19,7 @@ require "xdr_serializer"
 
 // Generate class definitions
 class RubyClassGenerator : ClassGenerator {
+  String __cname;
 
   oper init(StringArray builtins0, StringArray sizes) :
             ClassGenerator(builtins0, sizes) {
@@ -40,6 +41,7 @@ class RubyClassGenerator : ClassGenerator {
     }
 
     fmt `\n\n$(indent)def initialize\n`;
+    fmt `$(indent*2)@__id = 0x$(radix( msg.hash(__cname), 16))\n`;
 
     for (fitem :in msg.fields) {
       fname := fitem.key;
@@ -55,7 +57,11 @@ class RubyClassGenerator : ClassGenerator {
       cnt++;
     }
 
-    fmt `$(indent)end\n`;
+    fmt `$(indent)end\n\n`;
+
+    fmt I`$(indent)def getId\n \
+          $(indent*2)return @__id\n \
+          $(indent)end\n`;
     return cnt;
   }
 
@@ -63,6 +69,7 @@ class RubyClassGenerator : ClassGenerator {
   int _writeSerialize(Formatter fmt, Message msg) {
     uint cnt = 0;
     fmt `\n$(indent)def serialize(sr)\n`;
+    fmt `$(indent*2)sr.uint32(@__id);\n`; // Always write the id\n`;
 
     for (fitem :in msg.fields){
       fname := fitem.key;
@@ -90,7 +97,9 @@ class RubyClassGenerator : ClassGenerator {
   // Write materialize method
   int _writeMaterialize(Formatter fmt, Message msg) {
     uint cnt = 0;
-    fmt `\n$(indent)def materialize(m)\n`;
+    fmt I`\n$(indent)def materialize(m)\n \
+          $(indent*2)__new_id=m.uint32()\n \
+          $(indent*2)raise 'message id mismatch for $(capitalize(__cname)), got #{__new_id}, expected #{@__id}' if __new_id != @__id\n`;
 
     for (fitem :in msg.fields){
       fname := fitem.key;
@@ -121,7 +130,7 @@ class RubyClassGenerator : ClassGenerator {
   int _writeSize(Formatter fmt, Message msg) {
     uint cnt = 0;
     fmt `\n$(indent)def sizeNeeded()\n`;
-    fmt `$(indent*2)cnt = 0;\n`;
+    fmt `$(indent*2)cnt = 4;\n`;
 
     for (fitem :in msg.fields) {
       fname := fitem.key;
@@ -152,11 +161,12 @@ class RubyClassGenerator : ClassGenerator {
     fmt.write(preamble);
 
     for (item :in messages) {
-      name := capitalize(item.key);
+      cname := capitalize(item.key);
+      __cname = item.key;
       msg := item.val;
 
       fmt `#$("-"*78)\n`;
-      fmt `class $(name)_Base\n`;
+      fmt `class $(__cname)_Base\n`;
       _writeDefs(fmt, msg);
       _writeSerialize(fmt, msg);
       _writeSize(fmt, msg);
