@@ -1,0 +1,35 @@
+// Test CrossRoads I/O Message Client
+// Copyright 2012 Conrad Steenberg <conrad.steenberg@gmail.com>
+// 7/26/2012
+
+import crack.io cout, FStr;
+import crack.lang Buffer;
+import crack.logger cerrLogger, DEBUG, ERROR, INFO;
+import crack.net.xs Xs, XsSocket, XsMsg, XS_XREQ;
+import crack.time TimeDelta, seconds;
+import whip.msgserver MessageClientInterpreter;
+import whip.sockserver InterpreterContainer;
+
+// Add ruby interpreter so we have a mixed server
+cerrLogger.setLevel(DEBUG);
+sfmt := FStr();
+cerrLogger.setNamedFields("progname datetime severity msg");
+client := InterpreterContainer(cerrLogger);
+delay := seconds(1);
+int i=0;
+MessageClientInterpreter xsIntp = {"tcp://127.0.0.1:5555"};
+xsIntp.start(); // Connect
+client.add(xsIntp);
+while (true) {
+  while (true) {
+    if (!xsIntp.isWritable()) client.processOnce(delay);
+    if (xsIntp.isWritable()) {
+      cerrLogger.info("Socket ready for sending...");
+      break;
+    }
+  }
+  cerrLogger.info("Sending...");
+  bytes := xsIntp.send(sfmt `Hello $i`);
+  cerrLogger.debug(sfmt `bytes=$bytes\n`);
+  i++;
+}
