@@ -1,0 +1,235 @@
+// A server/client implemented as an interpreter in the whip framework
+import crack.cont.array Array;
+import crack.cont.list List;
+import crack.io cout, FStr, FileHandle;
+import crack.lang Buffer, Exception, Formatter, CString;
+import crack.logger cerrLogger, DEBUG, ERROR, Logger;
+import crack.net.xs Xs, XsSocket, XsMsg, XS_XREQ, XS_XREP, XS_EVENTS,
+                    XS_REP, XS_REQ, XS_POLLIN, XS_POLLOUT, XS_IDENTITY,
+                    XS_SNDHWM, XS_FD, getErrMsg;
+import crack.strutil StringArray;
+import whip.interpreter Interpreter, globalId, INTP_ERROR, INTP_NEW, INTP_READY,
+                        INTP_REQUEST_STOP, INTP_SUBMIT;
+
+sfmt := FStr();
+
+@abstract
+class MessageInterpreter : Interpreter {
+  Xs ctx = {};
+  XsSocket  _sock;
+  XsMsg _msg;
+  CString sockAddr;
+  List[XsMsg] outbound = {};
+  
+  int _xsId = -1;
+  Array[FileHandle] _fileHandles = {};
+
+  void _init(int tpe) {
+    _sock = XsSocket(ctx, tpe);
+    status = INTP_NEW;
+    _msg = XsMsg();
+    log.debug(sfmt `Socket ID = $(_sock.getOptString(XS_IDENTITY))`);
+    _id = globalId++;
+  }
+
+  void _updateFileHandles() {
+    fd := _sock.getOptInt(XS_FD);
+    if (fd >= 0) {
+      if (_fileHandles.count() == 0)
+        _fileHandles.append(FileHandle(fd));
+      else
+        _fileHandles[0].fd = fd;
+    }
+    else
+      log.info(sfmt `Unable to obtain socket FD: $(getErrMsg())`);
+  }
+
+  oper init() : Interpreter(null, null) {
+    status = INTP_NEW;
+    _id = globalId++;
+  }
+
+  oper init(StringArray cmd, StringArray statusCmds) :
+            Interpreter(cmd, statusCmds)
+  {
+     log = cerrLogger;
+    _id = globalId++;
+  }
+
+  oper init(StringArray cmd, StringArray statusCmds, Logger newlog) :
+        Interpreter(cmd, statusCmds)
+  {
+    log = newlog;
+    _id = globalId++;
+  }
+
+  int stop() {
+    log.debug(FStr() `*** Stopping XS socket $sockAddr ***`);
+    _sock.shutdown(_xsId);
+    _fileHandles.clear();
+    status = INTP_NEW;
+    return status;
+  }
+
+  int restart() {
+    stop();
+    status = INTP_NEW;
+    if (start() != INTP_READY) throw Exception("Unable to restart XS server");
+    return status;
+  }
+
+  Array[FileHandle] getFileHandles() {
+    _updateFileHandles();
+    return _fileHandles;
+  }
+
+  int onReady() {
+    _finishedCmds++;
+    if (_finishedCmds >= _maxCmds) {
+      status = INTP_REQUEST_STOP;
+      _statusChanges.append(INTP_NEW);
+    }
+    return status;
+  }
+
+  int exe(String script) {
+    return INTP_SUBMIT; // TODO, get real number of bytes sent
+  }
+
+  bool isWritable() {
+    _msgReady := _sock.getOptInt(XS_EVENTS);
+    return _msgReady >= 0 && ((_msgReady & XS_POLLOUT) == XS_POLLOUT);
+  }
+
+  bool isReadable() {
+    _msgReady := _sock.getOptInt(XS_EVENTS);
+    log.debug(sfmt `readable=$_msgReady`);
+    return _msgReady > 0 && ((_msgReady & XS_POLLIN) == XS_POLLIN);
+  }
+
+  int writeHandler(FileHandle f) {
+    while (isWritable() && outbound.count() > 0) {
+      _sock.sendMsg(outbound.popHead(), 0);
+    }
+    return 0;
+  }
+
+
+  oper del() {
+    if (_process) stop();
+  }
+
+  void formatTo(Formatter fmt) {
+    fmt `MSGINTP($(id()), $sockAddr)`;
+  }
+}
+
+class MessageServerInterpreter : MessageInterpreter {
+  oper init(String sockAddr0) {
+    log.debug("init(String)");
+    sockAddr = CString(sockAddr0);
+    _init(XS_REP);
+  }
+
+  oper init(CString sockAddr0) {
+    log.debug("init(CString)");
+    sockAddr = sockAddr0;
+    _init(XS_REP);
+  }
+
+  int start() {
+    if (status != INTP_NEW) return INTP_ERROR;
+    _xsId = _sock.bind(sockAddr); // this throws an exception if it fails
+    log.debug(sfmt `Bound to $(sockAddr), xsId = $_xsId`);
+    _updateFileHandles();
+    status = INTP_READY;
+    return status;
+  }
+
+  // Block until we send a message
+  int sendMsg(Buffer buf) {
+    tmpMsg := XsMsg(buf);
+    return _sock.sendMsg(tmpMsg, 0);
+  }
+
+  int send(Buffer buf) {
+    return _sock.send(buf, 0);
+  }
+
+  int readHandler(FileHandle f) {
+    int changes = 0;
+    //log.debug("Server.readHandler");
+
+    while (isReadable()) {
+      _sock.recvMsg(_msg, 0);
+      req := String(_msg.updateBuffer());
+      log.info(req);
+      rep := "Reply: " + req;
+      if (isWritable()) {
+        log.info(rep);
+        send(rep);
+      }
+      else
+        outbound.append(XsMsg(rep));
+    }
+    return changes;
+  }
+
+  void formatTo(Formatter fmt) {
+    fmt `MSGSERVER($(id()), $sockAddr, events=$(_sock.getOptInt(XS_EVENTS)))`;
+  }
+
+}
+
+class MessageClientInterpreter : MessageInterpreter {
+
+  oper init(String sockAddr0) {
+    log.debug("init(String)");
+    sockAddr = CString(sockAddr0);
+    _init(XS_REQ);
+  }
+
+  oper init(CString sockAddr0) {
+    log.debug("init(CString)");
+    sockAddr = sockAddr0;
+    _init(XS_REQ);
+  }
+
+  int start() {
+    if (status != INTP_NEW) return INTP_ERROR;
+    
+    _xsId = _sock.connect(sockAddr); // this throws an exception if it fails
+    log.debug(sfmt `Connected to $(sockAddr), xsId = $_xsId`);
+    _updateFileHandles();
+    status = INTP_READY;
+    return status;
+  }
+
+  int readHandler(FileHandle f) {
+    int changes = 0;
+    //log.debug("Client.readHandler");
+    _msgReady := _sock.getOptInt(XS_EVENTS);
+    while (_msgReady & XS_POLLIN) {
+      if (_msgReady != -1) {
+        _sock.recvMsg(_msg, 0);
+        log.info(String(_msg.updateBuffer()));
+      }
+      _msgReady = _sock.getOptInt(XS_EVENTS);
+    }
+    return changes;
+  }
+
+  // Block until we send a message
+  int sendMsg(Buffer buf) {
+    tmpMsg := XsMsg(buf);
+    return _sock.sendMsg(tmpMsg, 0);
+  }
+
+  int send(Buffer buf) {
+    return _sock.send(buf, 0);
+  }
+
+  void formatTo(Formatter fmt) {
+    fmt `MSGCLIENT($(id()), $sockAddr, events=$(_sock.getOptInt(XS_EVENTS)))`;
+  }
+}
