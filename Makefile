@@ -49,11 +49,11 @@ test/test_msgclient: test/test_msgclient.crk whip/msgserver.crk \
 bin/whipclass: src/whipclass.crk whip/utils/idl_parser.crk \
                whip/utils/generator.crk whip/utils/crack_generator.crk \
                whip/utils/ruby_generator.crk
-	$(CRACKC) src/whipclass.crk
+	$(CRACKC) -l $(PREFIX)/lib src/whipclass.crk
 	mv src/whipclass $@
 
  % : %.crk
-	$(CRACKC) $<
+	$(CRACKC) -l $(PREFIX)/lib $<
 
 
 install:
