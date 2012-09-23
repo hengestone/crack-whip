@@ -14,7 +14,8 @@ import whip.msgserver MessageServerInterpreter;
 cerrLogger.setLevel(DEBUG);
 cerrLogger.setNamedFields("progname datetime severity msg");
 server := InterpreterContainer(cerrLogger);
-delay := seconds(10);
+delay := seconds(1);
+udelay := TimeDelta(0, 1000);
 
 RubyInterpreter rintp = {cerrLogger};
 rintp.setMaxCmds(5);
@@ -29,6 +30,15 @@ xsIntp.start();
 server.add(xsIntp);
 
 while (true) {
+  if (xsIntp.isWritable() && xsIntp.outbound.count() > 0) {
+    xsIntp.sendMsg(xsIntp.outbound.popHead());
+    server.processOnce(udelay);
+  }
+
+  if (xsIntp.readHandler(null) > 0) {
+    server.processOnce(udelay);
+    continue;
+  }
   changes := server.processOnce(delay);
   cerrLogger.debug(sfmt `changes=$changes\n`);
 }

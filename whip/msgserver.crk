@@ -152,6 +152,11 @@ class MessageServerInterpreter : MessageInterpreter {
     return _sock.sendMsg(tmpMsg, 0);
   }
 
+  // Block until we send a message
+  int sendMsg(XsMsg msg) {
+    return _sock.sendMsg(msg, 0);
+  }
+
   int send(Buffer buf) {
     return _sock.send(buf, 0);
   }
@@ -162,6 +167,7 @@ class MessageServerInterpreter : MessageInterpreter {
 
     while (isReadable()) {
       _sock.recvMsg(_msg, 0);
+      changes++;
       req := String(_msg.updateBuffer());
       log.info(req);
       rep := "Reply: " + req;
@@ -207,14 +213,13 @@ class MessageClientInterpreter : MessageInterpreter {
 
   int readHandler(FileHandle f) {
     int changes = 0;
-    //log.debug("Client.readHandler");
     _msgReady := _sock.getOptInt(XS_EVENTS);
-    while (_msgReady & XS_POLLIN) {
-      if (_msgReady != -1) {
-        _sock.recvMsg(_msg, 0);
-        log.info(String(_msg.updateBuffer()));
-      }
+    log.debug(FStr() `Client.readHandler, _msgReady=$_msgReady`);
+    while (_msgReady > 0 && (_msgReady & XS_POLLIN) > 0) {
+      _sock.recvMsg(_msg, 0);
+      log.info(String(_msg.updateBuffer()));
       _msgReady = _sock.getOptInt(XS_EVENTS);
+      changes++;
     }
     return changes;
   }
