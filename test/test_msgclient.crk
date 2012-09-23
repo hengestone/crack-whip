@@ -16,20 +16,23 @@ sfmt := FStr();
 cerrLogger.setNamedFields("progname datetime severity msg");
 client := InterpreterContainer(cerrLogger);
 delay := seconds(1);
+udelay := TimeDelta(0, 1000);
 int i=0;
 MessageClientInterpreter xsIntp = {"tcp://127.0.0.1:5555"};
 xsIntp.start(); // Connect
 client.add(xsIntp);
 while (true) {
-  while (true) {
-    if (!xsIntp.isWritable()) client.processOnce(delay);
-    if (xsIntp.isWritable()) {
-      cerrLogger.info("Socket ready for sending...");
-      break;
-    }
+  if (xsIntp.readHandler(null) > 0) 
+    client.processOnce(udelay);
+  
+  if (xsIntp.isWritable()) {
+    cerrLogger.info("Socket ready for sending...");
+    cerrLogger.info("Sending...");
+    bytes := xsIntp.send(sfmt `Hello $i`);
+    cerrLogger.debug(sfmt `bytes=$bytes\n`);
+    i++;
+    client.processOnce(udelay);
+    continue;
   }
-  cerrLogger.info("Sending...");
-  bytes := xsIntp.send(sfmt `Hello $i`);
-  cerrLogger.debug(sfmt `bytes=$bytes\n`);
-  i++;
+  client.processOnce(udelay);
 }
