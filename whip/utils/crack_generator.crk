@@ -2,11 +2,12 @@
 // Copyright 2012 Conrad Steenberg <conrad.steenberg@gmail.com>
 
 import crack.ascii radix, toLower;
-import crack.lang InvalidArgumentError;
 import crack.io Formatter;
+import crack.lang InvalidArgumentError;
 import crack.runtime usecs;
 import crack.strutil StringArray;
 import crack.time Date;
+import whip.serializer Materializer, Serializer, Serializable;
 import whip.utils.generator ClassGenerator, Message, sfmt;
 
 date := Date.now();
@@ -33,16 +34,16 @@ class CrackClassGenerator : ClassGenerator {
   }
 
   // Write member defs
-  int _writeDefs(Formatter fmt, Message msg) {
+  int _writeDefs(Formatter fmt, Message msg, Serializer sr, Materializer mt) {
     uint cnt = 0;
 
-    for (fitem :in msg.fields){
-      fname := fitem.key;
-      member := fitem.val;
+    for (mitem :in msg.fields){
+      mname := mitem.key;
+      member := mitem.val;
       if (builtins.get(member.type, null))
-        fmt `$(indent)$(member.type) $fname`;
+        fmt `$(indent)$(member.type) $mname`;
       else
-        fmt `$(indent)$(member.type)_Base $fname`;
+        fmt `$(indent)$(member.type)_Base $mname`;
 
       // Write default value
       if (!(member.default is null))
@@ -54,67 +55,84 @@ class CrackClassGenerator : ClassGenerator {
   }
 
   // Write serialization method
-  int _writeSerialize(Formatter fmt, Message msg) {
+  int _writeSerialize(Formatter fmt, Message msg,
+                      Serializer sr, Materializer mt) {
     uint cnt = 0;
-    fmt `\n$(indent)void serialize(Serializer sr) {\n`;
-    fmt `$(indent*2)sr.format(__id); // Always write the id\n`;
+    itemSep := sr.itemSep.size > 0;
 
-    for (fitem :in msg.fields){
-      fname := fitem.key;
-      member := fitem.val;
+    fmt `\n$(indent)void serialize(Serializer sr, Buffer name) {\n`;
+    if (sr.prefix.size > 0)
+      fmt `$(indent*2)sr.write(sr.prefix);\n`;
+
+    if (sr.writeId) {
+      fmt `$(indent*2)sr.format(__id, "__whipMessageId");`;
+      cnt++;
+    }
+
+    for (mitem :in msg.fields){
+      mname := mitem.key;
+      member := mitem.val;
+
+      if (itemSep && cnt > 0)
+        fmt `$(indent*2)sr.write(sr.itemSep);\n\n`;
 
       if (builtins.hasKey(member.type))
-        fmt `$(indent*2)sr.format($fname);\n`;
+        fmt `$(indent*2)sr.format($mname, "$mname");\n`;
       else {
         if (member.type.size > 5 && member.type.substr(0, 5) == "Array") {
           l := member.type.size;
           subtype := toLower(member.type.slice(6, l - 1));
-          if (!builtins.hasKey(subtype)) {
-            fmt I`$(indent*2)sr.format(uint32($fname.count()));\n \
-                  $(indent*2)for (uint __i=0; __i< $fname.count(); __i++) $fname[__i].serialize(sr)\n`;
-          }
+          if (!builtins.hasKey(subtype))
+            fmt `$(indent*2)sr.format(Serializable.cast($mname), "$mname");\n`;
           else
-            throw InvalidArgumentError(sfmt `Unable to create serialization for $fname = $(member.type)`);
+            fmt `$(indent*2)sr.format($mname, "$mname");\n`;
         }
         else
-          fmt `$(indent*2)$(fname).serialize(sr);\n`;
+          fmt `$(indent*2)$(mname).serialize(sr, "$mname");\n`;
       }
       cnt++;
     }
+
+    if (sr.postfix.size > 0)
+    fmt `$(indent*2)sr.write(sr.postfix);\n`;
+
     fmt `$(indent)}\n`;
     return cnt;
   }
 
   // Write materialize method
-  int _writeMaterialize(Formatter fmt, Message msg) {
+  int _writeMaterialize(Formatter fmt, Message msg,
+                        Serializer sr, Materializer mt) {
     uint cnt = 0;
-    fmt I`\n$(indent)void materialize(Materializer m) {\n \
-         $(indent*2)uint32 __in; // an input uint32\n \
-         $(indent*2)__in = m.format(__in); // Always read the id\n \
-         $(indent*2)if (__in != __id)\n \
-         $(indent*3)throw InvalidArgumentError(`;
-         fmt.write("sfmt `Invalid message signature 0x");
-         fmt.format("$(radix(__in, 16)), expected 0x$(radix(__id, 16))`);\n");
+    fmt `\n$(indent)void materialize(Materializer m) {\n`;
+        if (sr.writeId) {
+          fmt I`$(indent*2)uint32 __in; // an input uint32\n \
+                $(indent*2)__in = m.format(__in); // Always read the id\n \
+                $(indent*2)if (__in != __id)\n \
+                $(indent*3)throw InvalidArgumentError(`;
+                fmt.write("sfmt `Invalid message signature 0x");
+                fmt.format("$(radix(__in, 16)), expected 0x$(radix(__id, 16))`);\n");
+        }
 
-    for (fitem :in msg.fields){
-      fname := fitem.key;
-      member := fitem.val;
+    for (mitem :in msg.fields){
+      mname := mitem.key;
+      member := mitem.val;
       if (builtins.hasKey(member.type))
-        fmt `$(indent*2)$fname = m.format($fname);\n`;
+        fmt `$(indent*2)$mname = m.format($mname, "$mname");\n`;
       else {
         if (member.type.size > 5 && member.type.substr(0, 5) == "Array") {
           l := member.type.size;
           subtype := toLower(member.type.slice(6, l - 1));
           if (!builtins.hasKey(subtype)) {
             fmt I`$(indent*2)__in = m.format(__in);\n \
-                  $(indent*2)$fname = Array[$subtype](__in);\n \
-                  $(indent*2)for (uint __i=0; __i< __in; __i++) $fname[__i] = $subtype.materialize(m);\n\n`;
+                  $(indent*2)$mname = Array[$subtype](__in);\n \
+                  $(indent*2)for (uint __i=0; __i< __in; __i++) $mname[__i] = $subtype.materialize(m, "$mname");\n\n`;
           }
           else
-            throw InvalidArgumentError(sfmt `Unable to create materialization for $fname = $(member.type)`);
+            throw InvalidArgumentError(sfmt `Unable to create materialization for $mname = $(member.type)`);
         }
         else 
-          fmt `$(indent*2)$(fname).materialize(m);\n`;
+          fmt `$(indent*2)$(mname).materialize(m, "$mname");\n`;
       }
       cnt++;
     }
@@ -123,27 +141,28 @@ class CrackClassGenerator : ClassGenerator {
   }
 
   // Write sizeNeeded method
-  int _writeSize(Formatter fmt, Message msg) {
+  int _writeSize(Formatter fmt, Message msg,
+                 Serializer sr, Materializer mt) {
     uint cnt = 0;
     fmt `\n$(indent)uint sizeNeeded() {\n`;
     fmt `$(indent*2)uint cnt = 4;  // The 32bit id is always there\n`;
 
-    for (fitem :in msg.fields) {
-      fname := fitem.key;
-      member := fitem.val;
+    for (mitem :in msg.fields) {
+      mname := mitem.key;
+      member := mitem.val;
       sz := builtins.get(member.type);
       if (sz) {
         if (sz[0] == b".") {
-          fmt `$(indent*2)cnt += $(fname)$(sz) + (4 - ($(fname)$(sz))%4)`;
+          fmt `$(indent*2)cnt += $(mname)$(sz) + (4 - ($(mname)$(sz))%4)`;
         }
         else {
           fmt `$(indent*2)cnt += $(sz)`;
         }
       }
       else {
-        fmt `$(indent*2)cnt += $(fname).sizeNeeded()`;
+        fmt `$(indent*2)cnt += $(mname).sizeNeeded()`;
       }
-      fmt `; // $fname\n`;
+      fmt `; // $mname\n`;
       cnt++;
     }
     fmt `$(indent*2)return cnt;\n`;
@@ -152,7 +171,7 @@ class CrackClassGenerator : ClassGenerator {
   }
 
   // Write all class definition to writer
-  int create(Formatter fmt) {
+  int create(Formatter fmt, Serializer sr, Materializer mt) {
     uint iLevel = 0, cnt = 0; // indent level
 
     fmt.write(preamble);
@@ -165,14 +184,13 @@ class CrackClassGenerator : ClassGenerator {
       fmt `class $(name)_Base {\n`;
       fmt `$(indent)uint32 __id = 0x$(radix( msg.hash(name), 16));\n`;
       fmt `$(indent)uint32 getId() { return __id; }\n`;
-      _writeDefs(fmt, msg);
-      _writeSerialize(fmt, msg);
-      _writeSize(fmt, msg);
-      _writeMaterialize(fmt, msg);
+      _writeDefs(fmt, msg, sr, mt);
+      _writeSerialize(fmt, msg, sr, mt);
+      _writeSize(fmt, msg, sr, mt);
+      _writeMaterialize(fmt, msg, sr, mt);
       fmt.write("}\n\n");
       cnt++;
     }
     return cnt;
-
   }
 }

@@ -18,21 +18,28 @@ class testSerialize_Base : Serializable {
     Array[int] A = [10];
 
     void serialize(Serializer sr) {
-        sr.format(int1);
-        sr.format(uint2);
-        sr.format(int3);
-        sr.format(uint4);
-        sr.format(S);
-        sr.format(A);
+        sr.write(sr.prefix);
+        sr.format(int1, "int1");
+        sr.write(sr.itemSep);
+        sr.format(uint2, "uint2");
+        sr.write(sr.itemSep);
+        sr.format(int3, "int3");
+        sr.write(sr.itemSep);
+        sr.format(uint4, "uint4");
+        sr.write(sr.itemSep);
+        sr.format(S, "S");
+        sr.write(sr.itemSep);
+        sr.format(A, "A");
+        sr.write(sr.postfix);
     }
 
     void materialize(Materializer m) {
-        int1 = m.format(int1);
-        uint2 = m.format(uint2);
-        int3 = m.format(int3);
-        uint4 = m.format(uint4);
-        S = m.format(S);
-        A = m.format(A);
+        int1 = m.format(int1, "int1");
+        uint2 = m.format(uint2, "uint2");
+        int3 = m.format(int3, "int3");
+        uint4 = m.format(uint4, "uint4");
+        S = m.format(S, "S");
+        A = m.format(A, "A");
     }
 
     uint sizeNeeded(){
@@ -76,11 +83,13 @@ class testSerialize_Base : Serializable {
 class testSerialize : testSerialize_Base {
 
     void formatTo(Formatter fmt) {
-        fmt.write("testSerialize {");
+        fmt.write("testSerialize {\n");
         fmt `   int int1 = $int1\n`;
         fmt `   uint2 = $uint2\n`;
         fmt `   int3 = $int3\n`;
         fmt `   uint32 uint4 = $uint4\n`;
+        fmt `   String S = $S\n`;
+        fmt `   Array[int] A = $A\n`;
         fmt.write("}");
     }
 
@@ -88,9 +97,10 @@ class testSerialize : testSerialize_Base {
 
 testSerialize test, test2;
 
-for (uint i=0; i<100000; i++){
+for (uint i=0; i<1; i++){
 
   test = testSerialize();
+  cout `$test\n`;
   sXDR := XDRBufferSerializer(test.sizeNeeded());
   test.serialize(sXDR);
 
@@ -102,7 +112,7 @@ for (uint i=0; i<100000; i++){
   test2.int3 = 999;
   test2.uint4 = 999;
   test2.S = "Random string";
-  test2.A= Array[int]![1,2,3,4];
+  test2.A = Array[int]![1,2,3,4];
 
   test2.materialize(mXDR);
 }

@@ -12,12 +12,15 @@ import whip.utils.generator Message;
 import whip.utils.idl_parser idlParser;
 import whip.utils.ruby_generator RubyClassGenerator;
 import whip.utils.ruby_xdr_serializer rubyTypes, rubySizes;
-import whip.xdr_serializer crackTypes, crackSizes;
+import whip.xdr_serializer crackTypes, crackSizes, XDRBufferSerializer,
+                           XDRBufferMaterializer;
+import whip.json_serializer JsonBufferSerializer, JsonBufferMaterializer;
 
-CmdOptions options = [Option("help",   "h", "Show help message", "f", CMD_BOOL),
-                      Option("file",   "f", "IDL file to parse", "", CMD_STR),
-                      Option("out",    "o", "Name of output file", "", CMD_STR),
-                      Option("lang",   "l", "Output language", "crack", CMD_STR)];
+CmdOptions options = [Option("help",        "h", "Show help message", "f", CMD_BOOL),
+                      Option("idl",         "i", "IDL file to parse", "", CMD_STR),
+                      Option("out",         "o", "Name of output file", "", CMD_STR),
+                      Option("lang",        "l", "Output language", "crack", CMD_STR),
+                      Option("serializer",  "s", "Serializer [json,xdr]", "json", CMD_STR),];
 
 // Parse options passed by the system
 options.parse(argv, false);
@@ -26,14 +29,12 @@ void usage(CmdOptions options){
   options.printUsage(FStr() `Usage: $(argv[0]) [OPT1] [OPT2] file\n`);
 }
 
-if  (options.getBool("help") || options.getString("file").size == 0){
+if  (options.getBool("help") || options.getString("idl").size == 0){
   usage(options);
   exit(0);
 }
 
-RubyClassGenerator rgen = {rubyTypes, rubySizes};
-CrackClassGenerator cgen = {crackTypes, crackSizes};
-
+// Create parser
 idlParser parser;
 lang := options.getString("lang");
 if (lang == "crack")
@@ -41,11 +42,19 @@ if (lang == "crack")
 else if (lang == "ruby")
   parser = idlParser(RubyClassGenerator(rubyTypes, rubySizes));
 else {
-  cerr `Unknown output language $lang\n`;
+  cerr `Unknown output language $lang, must be one of "crack" or "ruby"\n`;
   exit(1);
 }
 
+parser.parseFile(options.getString("idl"));
 
-parser.parseFile(options.getString("file"));
-parser.gen.create(cout);
-
+// Create serializer
+serializer := options.getString("serializer");
+if (serializer == "json")
+    parser.gen.create(cout, JsonBufferSerializer(), JsonBufferMaterializer());
+else if (serializer == "xdr")
+    parser.gen.create(cout, JsonBufferSerializer(), XDRBufferMaterializer());
+else  {
+  cerr `Unknown output serializer $serializer, must be one of "json" or "xdr"\n`;
+  exit(1);
+}
