@@ -1,0 +1,242 @@
+// Class serialization/deserialization using supplied functions
+import crack.io Formatter, Writer, cout, FDReader, FDWriter, FStr;
+import crack.lang ManagedBuffer, Buffer, InvalidArgumentError, InvalidResourceError,
+                  AssertionError;
+
+import crack.strutil StringArray;
+import crack.ascii hex;
+import crack.cont.array Array;
+import crack.cont.hashmap HashMap, OrderedHashMap;
+import crack.enc.json.parser JsonParser;
+import crack.enc.json.lib UnexpectedToken, ParseException,
+                      JsonFormatter, JsonStringFormatter, JsonObject,
+                      JsonArray, JsonInt, JsonFloat, JsonBool, JsonString;
+
+import whip.serializer Materializer, Serializer, Serializable;
+@import crack.ann define;
+
+StringArray basicTypes = ["int", "String", "float", "bool", "object",
+                          "array[int]", "array[string]", "array[float]",
+                          "array[bool]", "array[object]"
+                         ];
+
+StringArray crackTypes = ["int", "string", "float", "bool", "HashMap",
+                          "Array[int]", "Array[string]", "Array[float]",
+                          "Array[bool]", "Array[object]"
+                         ];
+
+StringArray crackSizes = [".count()", ".count()", ".count()", 
+                          ".count()", ".count()", ".count()",
+                          ".count()", ".count()"];
+                          
+
+class noCopyStringFormatter : JsonStringFormatter {
+    oper init(): JsonStringFormatter() {}
+    oper init(uint bufsize) : JsonStringFormatter(bufsize) {}
+    Buffer getBuffer() { return Buffer(_writer.buffer, _writer.size); }
+}
+
+// Serializer for JSON formatter buffers
+class JsonBufferSerializer : Serializer {
+
+    noCopyStringFormatter _jsonBuf;
+    //ManagedBuffer _jsonBuf;
+
+    void _setup() {
+        writeId = false;
+        prefix = "{";
+        postfix = "}";
+        itemSep = ",";
+    }
+
+    oper init () : _jsonBuf(1024) {
+        _setup();
+    }
+
+    oper init (uint bufsize) { //: _jsonBuf(bufsize) {
+        _setup();
+    }
+
+    oper init(FDWriter w) : _jsonBuf = null {
+        throw InvalidResourceError("Not implemented");
+    }
+
+    Buffer getBuffer() {
+        if (_jsonBuf is null) {
+            throw InvalidResourceError("Internal buffer is null");
+        }
+        return _jsonBuf.getBuffer();
+    }
+
+    @define formatMethod(T) {
+        void format(T val, Buffer name) {
+            _jsonBuf `"$name": `;
+            _jsonBuf.format(val);
+        }
+
+        void format(Array[T] val, Buffer name) {
+            _jsonBuf.format(name);
+            _jsonBuf.write(": [");
+
+            bool first = true;
+            for (elem :in val) {
+                if (!first)
+                    _jsonBuf.write(", ");
+                else
+                    first = false;
+                _jsonBuf.format(elem);
+            }
+            _jsonBuf.write("]");
+
+        }
+    }
+
+    @formatMethod(int)
+    @formatMethod(uint)
+
+    @formatMethod(int16)
+    @formatMethod(uint16)
+
+    @formatMethod(int32)
+    @formatMethod(uint32)
+
+    @formatMethod(int64)
+    @formatMethod(uint64)
+
+    @formatMethod(float32)
+    @formatMethod(float64)
+    @formatMethod(bool)
+
+    @formatMethod(String)
+
+    void write(Buffer buf) {
+        _jsonBuf.write(buf);
+    }
+}
+
+class JsonBufferMaterializer : Materializer {
+
+    Buffer _jsonBuf;
+    JsonParser _parser;
+    JsonObject _result;
+
+    void _initResult(Object result) {
+        if (result.isa(JsonObject))
+            _result = JsonObject.cast(result);
+        else
+            throw InvalidArgumentError("JSON text must have an object (map) result");
+    }
+
+    oper init() {} // Needed for generator
+
+    oper init (Buffer buf) : _jsonBuf = buf, _parser() {
+        _initResult(_parser.parse(_jsonBuf).result);
+    }
+
+    oper init(Object jsonObject) : _jsonBuf = null {
+        _initResult(jsonObject);
+    }
+
+    oper init(FDReader r) : _jsonBuf = null {
+        throw InvalidResourceError("Not implemented");
+    }
+
+    Buffer getBuffer() {
+        return _jsonBuf;
+    }
+
+    @define formatMethodDirect(T, jT) {
+        T format(T val, Buffer name) {
+            return jT.cast(_result[String(name)]).value;
+        }
+
+        Array[T] format(Array[T] val, Buffer name) {
+            jA := JsonArray.cast(_result[String(name)]);
+            A := Array[T](jA.count());
+            for (elem :in jA) {
+                A.append(jT.cast(elem).value);
+            }
+            return A;
+        }
+
+        OrderedHashMap[String, T] format(OrderedHashMap[String, T] map, Buffer name) {
+            jM := JsonObject.cast(_result);
+            M := OrderedHashMap[String, T]();
+            for (item :in jM) {
+                M[item.key] = jT.cast(item.val).value;
+            }
+            return M;
+        }
+    }
+
+    @define formatMethodSimple(T, jT) {
+        T format(T val, Buffer name) {
+            return T(jT.cast(_result[String(name)]).value);
+        }
+
+        Array[T] format(Array[T] val, Buffer name) {
+            jA := JsonArray.cast(_result[String(name)]);
+            A := Array[T](jA.count());
+            for (elem :in jA) {
+                A.append(T(jT.cast(elem).value));
+            }
+            return A;
+        }
+
+        OrderedHashMap[String, T] format(OrderedHashMap[String, T] map, Buffer name) {
+            jM := JsonObject.cast(_result);
+            M := OrderedHashMap[String, T]();
+            for (item :in jM) {
+                M[item.key] = T(jT.cast(item.val).value);
+            }
+            return M;
+        }
+    }
+
+    @define formatMethodComplex(T, jT) {
+        T format(T val, Buffer name) {
+            return T.cast(jT.cast(_result[String(name)]));
+        }
+
+        Array[T] format(Array[T] val, Buffer name) {
+            jA := Array[T].cast(_result[String(name)]);
+            A := Array[T](jA.count());
+
+            for (elem :in jA) {
+                A.append(T.cast(jT.cast(elem)));
+            }
+            return A;
+        }
+
+        OrderedHashMap[String, T] format(OrderedHashMap[String, T] map, Buffer name) {
+            jM := JsonObject.cast(_result);
+            M := OrderedHashMap[String, T]();
+            for (item :in jM) {
+                M[item.key] = T.cast(jT.cast(item.val));
+            }
+            return M;
+        }
+    }
+
+
+    @formatMethodDirect(int, JsonInt)
+    @formatMethodSimple(uint,JsonInt)
+
+    @formatMethodSimple(int16, JsonInt)
+    @formatMethodSimple(int32, JsonInt)
+    @formatMethodSimple(uint16, JsonInt)
+    @formatMethodSimple(uint32, JsonInt)
+
+    @formatMethodSimple(int64, JsonInt)
+    @formatMethodSimple(uint64, JsonInt)
+
+    @formatMethodDirect(float, JsonFloat)
+    @formatMethodSimple(float32, JsonFloat)
+    @formatMethodSimple(float64, JsonFloat)
+    @formatMethodDirect(bool, JsonBool)
+
+    @formatMethodComplex(String, JsonString)
+
+    void write(Buffer buf) { }
+
+}

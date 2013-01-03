@@ -6,6 +6,7 @@ import crack.cont.hashmap HashMap, OrderedHashMap;
 import crack.io FStr, StringFormatter;
 import crack.lang KeyError, Buffer, InvalidArgumentError, Formatter;
 import crack.strutil StringArray;
+import whip.serializer Serializer, Materializer;
 
 FStr sfmt = {};
 indent := "  ";
@@ -111,19 +112,23 @@ class Message {
   }
 
   // Write member defs
-  @abstract int _writeDefs(Formatter fmt, Message msg);
+  @abstract int _writeDefs(Formatter fmt, Message msg,
+                           Serializer sr, Materializer mt);
 
   // Write serialization method
-  @abstract int _writeSerialize(Formatter fmt, Message msg);
+  @abstract int _writeSerialize(Formatter fmt, Message msg,
+                                Serializer sr, Materializer mt);
 
   // Write materialize method
-  @abstract int _writeMaterialize(Formatter fmt, Message msg);
+  @abstract int _writeMaterialize(Formatter fmt, Message msg,
+                                  Serializer sr, Materializer mt);
 
   // Write serialization method
-  @abstract int _writeSize(Formatter fmt, Message msg);
+  @abstract int _writeSize(Formatter fmt, Message msg,
+                           Serializer sr, Materializer mt);
 
   // Write all class definition to writer
-  @abstract int create(Formatter fmt);
+  @abstract int create(Formatter fmt, Serializer sr, Materializer mt);
 
   void signature(Formatter fmt) {
     for (item :in messages) {
@@ -132,8 +137,6 @@ class Message {
       fmt `}\n\n`;
     }
   }
-
-  
 
   void formatTo(Formatter fmt) {
     for (item :in messages) {

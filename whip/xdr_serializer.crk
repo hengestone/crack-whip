@@ -78,17 +78,22 @@ class XDRBufferSerializer : Serializer {
     ManagedBuffer _xdrBuf;
     xdr _xdrStream;
 
-    oper init () {
-        _xdrBuf = ManagedBuffer(1024);
+    void _setup(uint bufsize) {
+        _xdrBuf = ManagedBuffer(bufsize);
         _xdrStream = xdrmem_create(_xdrBuf.buffer, _xdrBuf.cap, XDR_ENCODE);
+        writeId = true;
+        writeArraySize = true;
+    }
+
+    oper init () {
+        _setup(1024);
     }
 
     oper init(uint bufsize) {
-        _xdrBuf = ManagedBuffer(bufsize);
-        _xdrStream = xdrmem_create(_xdrBuf.buffer, _xdrBuf.cap, XDR_ENCODE);
+        _setup(bufsize);
     }
 
-    oper init(FDReader r) : _xdrBuf = null, _xdrStream = null {
+    oper init(FDWriter w) : _xdrBuf = null, _xdrStream = null {
         throw InvalidResourceError("Not implemented");
     }
 
@@ -97,11 +102,12 @@ class XDRBufferSerializer : Serializer {
     }
 
     @define formatMethod(T, s) {
-        void format(T val) {
+        void format(T val, Buffer name) {
             xdr_encode_$$T(_xdrStream, val);
             _xdrBuf.size += s;
             int sz = s;
         }
+        void format(T val, Buffer name) { };
     }
 
     @formatMethod(int, INT_SIZE)
@@ -118,7 +124,7 @@ class XDRBufferSerializer : Serializer {
     @formatMethod(bool, 4)
 
     @define formatMethodArray(T, s) {
-        void format(Array[T] val) {
+        void format(Array[T] val, Buffer name) {
             uint cnt = val.count();
             xdr_encode_array_$$T(_xdrStream, val.data(), cnt, cnt);
             _xdrBuf.size += 4 + (s*cnt);
@@ -138,42 +144,51 @@ class XDRBufferSerializer : Serializer {
     @formatMethodArray(float64, 8)
     @formatMethodArray(bool, 4)
 
-    void format(Buffer val) {
+    void format(String val, Buffer name) {
         xdr_encode_bytes(_xdrStream, val.buffer, val.size);
         _xdrBuf.size = xdr_getpos(_xdrStream);
     }
 
     // XDR uses 32 bits for each entry, so these are just aliases
-    void format(int16 val) {
+    void format(int16 val, Buffer name) {
         xdr_encode_int32(_xdrStream, val);
         _xdrBuf.size += 4;
     }
 
-    void format(uint16 val) {
+    void format(uint16 val, Buffer name) {
         xdr_encode_uint32(_xdrStream, val);
         _xdrBuf.size += 4;
     }
 
     // XDR doesn't do 16 bit values, so we encode them using 32 bits
-    void format(Array[int16] val) {
+    void format(Array[int16] val, Buffer name) {
         uint cnt = val.count();
         xdr_encode_uint32(_xdrStream, uint32(cnt));
         for (uint i=0; i<cnt; i++)
-        xdr_encode_int32(_xdrStream, int32(val[i]));
+            xdr_encode_int32(_xdrStream, int32(val[i]));
         _xdrBuf.size = 4 + (4*cnt);
     }
 
-    void format(Array[uint16] val) {
+    void format(Array[uint16] val, Buffer name) {
         uint cnt = val.count();
         xdr_encode_uint32(_xdrStream, uint32(cnt));
         for (uint i=0; i<cnt; i++)
-        xdr_encode_uint32(_xdrStream, uint32(val[i]));
+            xdr_encode_uint32(_xdrStream, uint32(val[i]));
         _xdrBuf.size = 4 + (4*cnt);
     }
 
+    void format(Array[String] val, Buffer name) {
+        uint cnt = val.count();
+        xdr_encode_uint32(_xdrStream, uint32(cnt));
+        for (uint i=0; i<cnt; i++) {
+            xdr_encode_uint32(_xdrStream, uint32(val[i].size));
+            xdr_encode_bytes(_xdrStream, val[i].buffer, val[i].size);
+        }
+        _xdrBuf.size = xdr_getpos(_xdrStream);
+    }
 
     void write(Buffer buf) {
-        format(buf);
+        format(buf, null);
     }
 
     oper del() {
@@ -188,11 +203,14 @@ class XDRBufferMaterializer : Materializer {
     Buffer _xdrBuf;
     xdr _xdrStream;
 
+    oper init () {
+    }
+
     oper init (Buffer buf) : _xdrBuf = buf {
         _xdrStream = xdrmem_create(_xdrBuf.buffer, _xdrBuf.size, XDR_DECODE);
     }
 
-    oper init(FDWriter w) : _xdrBuf = null {
+    oper init(FDReader r) : _xdrBuf = null {
         throw InvalidResourceError("Not implemented");
     }
 
@@ -206,9 +224,8 @@ class XDRBufferMaterializer : Materializer {
     
 
     @define formatMethod(T) {
-        T format(T val) {
+        T format(T val, Buffer name) {
             newval := xdr_decode_$$T(_xdrStream);
-            //if (xdr_error()) _handleError($T);
             return newval;
         }
     }
@@ -228,21 +245,26 @@ class XDRBufferMaterializer : Materializer {
 
     uint32 _peekSize(){
         uint32 size;
+        Buffer buf = null;
         pos := xdr_getpos(_xdrStream); // Get stream position
-        size = format(size);           // Read size
+        size = format(size, buf);           // Read size
         xdr_setpos(_xdrStream, pos);   // Reset stream position
         return size;
     }
 
     @define formatMethodArray(T) {
-        Array[T] format(Array[T] val) {
+        Array[T] format(Array[T] val, Buffer name) {
             // Read the array length so we can allocate enough space
             uint32 cnt = _peekSize();
+            uint size;
+
             // Create low-level array
             array[T] AD = array[T](cnt);
-            size := xdr_decode_array_$$T(_xdrStream, AD, cnt);
+            for (uint i=0; i<cnt; i++)
+                size = xdr_decode_array_$$T(_xdrStream, AD, cnt);
+
             if (size != cnt)
-                throw AssertionError("Different size array read than expected!");
+                throw AssertionError( FStr() `Different size array read ($size) than expected! ($cnt)`);
             Array[T] A = {AD, cnt, cnt, true};
             return A
         }
@@ -261,22 +283,36 @@ class XDRBufferMaterializer : Materializer {
     @formatMethodArray(float64)
     @formatMethodArray(bool)
 
-    String format(String val) {
+    String format(String val, Buffer name) {
         size := _peekSize();
-        byteptr buf = malloc(size);
-        newBuf := Buffer(buf, size);
-        xdr_decode_bytes(_xdrStream, newBuf.buffer, size);
-        return String(newBuf.buffer, newBuf.size, true);
+        S := String(malloc(size), size, true);
+        xdr_decode_bytes(_xdrStream, S.buffer, size);
+        return S;
+    }
+
+    Array[String] format(Array[String] val, Buffer name) {
+        // Read the array length so we can allocate enough space
+        uint32 cnt = xdr_decode_uint32(_xdrStream);
+        uint32 size, i;
+        // Create low-level array
+        array[String] AD = array[String](cnt);
+        for (uint i = 0; i < cnt; i++) {
+            size = xdr_decode_uint32(_xdrStream);
+            AD[i] = String(malloc(size), size, true);
+            xdr_decode_bytes(_xdrStream, AD[i].buffer, size);
+        }
+        Array[String] A = {AD, cnt, cnt, true};
+        return A
     }
 
     // XDR uses 32 bits for each entry, so these are just aliases
-    int16 format(int16 val) {
+    int16 format(int16 val, Buffer name) {
         newval := xdr_decode_int32(_xdrStream);
         if (xdr_error()) _handleError("int16");
         return int16(newval);
     }
 
-    uint16 format(uint16 val) {
+    uint16 format(uint16 val, Buffer name) {
         newval := xdr_decode_uint32(_xdrStream);
         if (xdr_error()) _handleError("uint16");
         return uint16(newval);
@@ -284,7 +320,7 @@ class XDRBufferMaterializer : Materializer {
 
     // XDR doesn't do 16 bit values, so we encode them using 32 bits
     @define formatMethodArrayUnsupported(T, rT) {
-        Array[T] format(Array[T] val) {
+        Array[T] format(Array[T] val, Buffer name) {
             // Read the array length so we can allocate enough space
             uint32 cnt = _peekSize();
             // Create low-level array
@@ -308,7 +344,7 @@ class XDRBufferMaterializer : Materializer {
     @formatMethodArrayUnsupported(uint16, uint32)
 
     void write(Buffer buf){
-        format(buf);
+        format(buf, null);
     }
 
     oper del() {

@@ -41,16 +41,20 @@ int cmp(bool a, bool b) {
 @heavycmp(uint)
 
 @export_symbols cmp;
+@abstract class Serializable;
 
 @abstract class Serializer {
+    String prefix = "";
+    String postfix = "";
+    String itemSep = "";
+    bool writeId = false;
+    bool writeArraySize = false;
 
     oper init() {}
 
-#~     @abstract oper init(uint bufsize);
-#~     @abstract oper init(FDReader r);
-
     @define formatMethod(T) {
-        @abstract void format(T val);
+        @abstract void format(T val, Buffer name);
+        @abstract void format(Array[T] val, Buffer name);
     }
 
     @formatMethod(int)
@@ -67,25 +71,10 @@ int cmp(bool a, bool b) {
 
     @formatMethod(float32)
     @formatMethod(float64)
+
     @formatMethod(bool)
+    @formatMethod(String)
 
-    @define formatMethodArray(T) {
-        @abstract void format(Array[T] val);
-    }
-
-    @formatMethodArray(int)
-    @formatMethodArray(uint)
-    @formatMethodArray(int16)
-    @formatMethodArray(uint16)
-    @formatMethodArray(int32)
-    @formatMethodArray(uint32)
-    @formatMethodArray(int64)
-    @formatMethodArray(uint64)
-    @formatMethodArray(float32)
-    @formatMethodArray(float64)
-    @formatMethodArray(bool)
-
-    @abstract void format(Buffer val);
     @abstract void write(Buffer buf);
 
 }
@@ -94,11 +83,9 @@ int cmp(bool a, bool b) {
 
     oper init() {}
 
-#~     @abstract oper init(Buffer buf);
-#~     @abstract oper init(FDWriter w);
-
     @define formatMethod(T) {
-        @abstract T format(T val);
+        @abstract T format(T val, Buffer name);
+        @abstract Array[T] format(Array[T] val, Buffer name);
     }
 
     @formatMethod(int)
@@ -115,31 +102,15 @@ int cmp(bool a, bool b) {
 
     @formatMethod(float32)
     @formatMethod(float64)
+
     @formatMethod(bool)
-
-    @define formatMethodArray(T) {
-        @abstract Array[T] format(Array[T] val);
-    }
-
-    @formatMethodArray(int)
-    @formatMethodArray(uint)
-    @formatMethodArray(int16)
-    @formatMethodArray(uint16)
-    @formatMethodArray(int32)
-    @formatMethodArray(uint32)
-    @formatMethodArray(int64)
-    @formatMethodArray(uint64)
-    @formatMethodArray(float32)
-    @formatMethodArray(float64)
-    @formatMethodArray(bool)
-
-    @abstract String format(String val);
+    @formatMethod(String)
 
     @abstract void write(Buffer buf);
 
 }
 
-@abstract class Serializable {
+@abstract class Serializable {    
     @abstract void serialize(Serializer sr);
     @abstract uint sizeNeeded();
 }

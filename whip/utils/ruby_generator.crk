@@ -5,6 +5,7 @@ import crack.ascii toLower, capitalize, radix;
 import crack.io Formatter;
 import crack.strutil StringArray;
 import crack.time Date;
+import whip.serializer Materializer, Serializer, Serializable;
 import whip.utils.generator ClassGenerator, Message, sfmt;
 
 d := Date.now();
@@ -26,15 +27,15 @@ class RubyClassGenerator : ClassGenerator {
   }
 
   // Write member defs
-  int _writeDefs(Formatter fmt, Message msg) {
+  int _writeDefs(Formatter fmt, Message msg, Serializer sr, Materializer mt) {
     uint cnt = 0;
 
     fmt `$(indent)attr_accessor `;
     bool first = true;
 
-    for (fitem :in msg.fields){
-      fname := fitem.key;
-      member := fitem.val;
+    for (mitem :in msg.fields){
+      fname := mitem.key;
+      member := mitem.val;
       if (!first) fmt.write(", ");
       fmt `:$fname`;
       first = false;
@@ -43,9 +44,9 @@ class RubyClassGenerator : ClassGenerator {
     fmt `\n\n$(indent)def initialize\n`;
     fmt `$(indent*2)@__id = 0x$(radix( msg.hash(__cname), 16))\n`;
 
-    for (fitem :in msg.fields) {
-      fname := fitem.key;
-      member := fitem.val;
+    for (mitem :in msg.fields) {
+      fname := mitem.key;
+      member := mitem.val;
       fmt `$(indent*2)@$fname`;
 
       // Write default value
@@ -66,28 +67,40 @@ class RubyClassGenerator : ClassGenerator {
   }
 
   // Write serialization method
-  int _writeSerialize(Formatter fmt, Message msg) {
+  int _writeSerialize(Formatter fmt, Message msg, Serializer sr, Materializer mt) {
     uint cnt = 0;
-    fmt `\n$(indent)def serialize(sr)\n`;
-    fmt `$(indent*2)sr.uint32(@__id);\n`; // Always write the id\n`;
+    itemSep := sr.itemSep.size > 0;
 
-    for (fitem :in msg.fields){
-      fname := fitem.key;
-      member := fitem.val;
+    fmt `\n$(indent)def serialize(sr, name)\n`;
+    if (sr.prefix.size > 0)
+      fmt `$(indent)sr.write(sr.prefix)\n`;
+
+    if (sr.writeId) {
+      fmt `$(indent*2)sr.uint32(@__id, "__whipMessageId")\n`;
+      cnt++;
+    }
+
+    for (mitem :in msg.fields){
+      mname := mitem.key;
+      member := mitem.val;
+
+      if (itemSep && cnt > 0)
+        fmt `$(indent*2)sr.write(sr.itemSep)\n`;
+
       if (builtins.hasKey(member.type)) {
         if (member.type.size > 5 && member.type.substr(0, 5) == "Array") {
           l := member.type.size;
           subtype := toLower(member.type.slice(6, l - 1));
           if (builtins.hasKey(subtype))
-            fmt `$(indent*2)sr.array(@$(fname), sr.$(subtype)_lambda)\n`;
+            fmt `$(indent*2)sr.array(@$(mname), sr.$(subtype)_lambda)\n`;
           else
-            fmt `$(indent*2)sr.array(@$(fname), $(subtype))\n`;
+            fmt `$(indent*2)sr.array(@$(mname), $(subtype))\n`;
         }
         else
-          fmt `$(indent*2)sr.$(toLower(member.type))(@$fname);\n`;
+          fmt `$(indent*2)sr.$(toLower(member.type))(@$mname);\n`;
       }
       else
-        fmt `$(indent*2)$(fname).serialize(sr);\n`;
+        fmt `$(indent*2)$(mname).serialize(sr, mname);\n`;
       cnt++;
     }
     fmt `$(indent)end\n`;
@@ -95,30 +108,32 @@ class RubyClassGenerator : ClassGenerator {
   }
 
   // Write materialize method
-  int _writeMaterialize(Formatter fmt, Message msg) {
+  int _writeMaterialize(Formatter fmt, Message msg, Serializer sr, Materializer mt) {
     uint cnt = 0;
-    fmt I`\n$(indent)def materialize(m)\n \
-          $(indent*2)__new_id=m.uint32()\n \
-          $(indent*2)raise 'message id mismatch for $(capitalize(__cname)), got #{__new_id}, expected #{@__id}' if __new_id != @__id\n`;
+    fmt `\n$(indent)def materialize(m)\n`;
+    if (sr.writeId) {
+          fmt `$(indent*2)__new_id=m.uint32("__whipMessageId")\n`;
+          fmt `$(indent*2)raise 'message id mismatch for $(capitalize(__cname)), got #{__new_id}, expected #{@__id}' if __new_id != @__id\n`;
+      }
 
-    for (fitem :in msg.fields){
-      fname := fitem.key;
-      member := fitem.val;
+    for (mitem :in msg.fields){
+      mname := mitem.key;
+      member := mitem.val;
       fmt `$(indent*2)`;
       if (builtins.hasKey(member.type)) {
         if (member.type.size > 5 && member.type.substr(0, 5) == "Array") {
           l := member.type.size;
           subtype := toLower(member.type.slice(6, l - 1));
           if (builtins.hasKey(subtype))
-            fmt `@$(fname) = m.array(m.$(subtype)_lambda, nil)\n`;
+            fmt `@$(mname) = m.array(m.$(subtype)_lambda, nil)\n`;
           else
-            fmt `@$(fname) = m.array(nil, $(subtype))\n`; // Compound Array
+            fmt `@$(mname) = m.array(nil, $(subtype))\n`; // Compound Array
         } else {
-          fmt `@$fname = m.$(toLower(member.type))()\n`;
+          fmt `@$mname = m.$(toLower(member.type))()\n`;
         }
       }
       else {
-        fmt `@$(fname).materialize(m)\n`; // Compound type
+        fmt `@$(mname).materialize(m, $mname)\n`; // Compound type
       }
       cnt++;
     }
@@ -127,26 +142,26 @@ class RubyClassGenerator : ClassGenerator {
   }
 
   // Write serialization method
-  int _writeSize(Formatter fmt, Message msg) {
+  int _writeSize(Formatter fmt, Message msg, Serializer sr, Materializer mt) {
     uint cnt = 0;
     fmt `\n$(indent)def sizeNeeded()\n`;
     fmt `$(indent*2)cnt = 4;\n`;
 
-    for (fitem :in msg.fields) {
-      fname := fitem.key;
-      member := fitem.val;
+    for (mitem :in msg.fields) {
+      mname := mitem.key;
+      member := mitem.val;
       sz := builtins.get(member.type);
       if (sz) {
         if (sz[0] == b".") {
-          fmt `$(indent*2)cnt += $(fname)$(sz) + (4 - ($(fname)$(sz))%4)`;
+          fmt `$(indent*2)cnt += $(mname)$(sz) + (4 - ($(mname)$(sz))%4)`;
         }
         else {
           fmt `$(indent*2)cnt += $(sz)`;
         }
       }
       else
-        fmt `$(indent*2)cnt += $(fname).sizeNeeded()`;
-      fmt ` # $fname\n`;
+        fmt `$(indent*2)cnt += $(mname).sizeNeeded()`;
+      fmt ` # $mname\n`;
       cnt++;
     }
     fmt `$(indent*2)return cnt\n`;
@@ -155,7 +170,7 @@ class RubyClassGenerator : ClassGenerator {
   }
 
   // Write all class definition to writer
-  int create(Formatter fmt) {
+  int create(Formatter fmt, Serializer sr, Materializer mt) {
     uint iLevel = 0, cnt = 0; // indent level
 
     fmt.write(preamble);
@@ -167,10 +182,10 @@ class RubyClassGenerator : ClassGenerator {
 
       fmt `#$("-"*78)\n`;
       fmt `class $(__cname)_Base\n`;
-      _writeDefs(fmt, msg);
-      _writeSerialize(fmt, msg);
-      _writeSize(fmt, msg);
-      _writeMaterialize(fmt, msg);
+      _writeDefs(fmt, msg, sr, mt);
+      _writeSerialize(fmt, msg, sr, mt);
+      _writeSize(fmt, msg, sr, mt);
+      _writeMaterialize(fmt, msg, sr, mt);
       fmt.write("end\n\n");
       cnt++;
     }

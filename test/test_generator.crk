@@ -24,4 +24,4 @@ msg2.addField("T", "testSerialize");
 
 gen.addMessage("testSerializeContainer", msg2);
 
-gen.create(cout);
+gen.create(cout, XDRBufferSerializer(), XDRBufferMaterializer());
