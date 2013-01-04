@@ -70,7 +70,8 @@ class JsonBufferSerializer : Serializer {
 
     @define formatMethod(T) {
         void format(T val, Buffer name) {
-            _jsonBuf `"$name": `;
+            _jsonBuf.format(name);
+            _jsonBuf.write(": ");
             _jsonBuf.format(val);
         }
 
@@ -195,7 +196,7 @@ class JsonBufferMaterializer : Materializer {
 
     @define formatMethodComplex(T, jT) {
         T format(T val, Buffer name) {
-            return T.cast(jT.cast(_result[String(name)]));
+            return T(jT.cast(_result[String(name)]));
         }
 
         Array[T] format(Array[T] val, Buffer name) {
@@ -203,7 +204,7 @@ class JsonBufferMaterializer : Materializer {
             A := Array[T](jA.count());
 
             for (elem :in jA) {
-                A.append(T.cast(jT.cast(elem)));
+                A.append(T(jT.cast(elem)));
             }
             return A;
         }
@@ -212,7 +213,7 @@ class JsonBufferMaterializer : Materializer {
             jM := JsonObject.cast(_result);
             M := OrderedHashMap[String, T]();
             for (item :in jM) {
-                M[item.key] = T.cast(jT.cast(item.val));
+                M[item.key] = T(jT.cast(item.val));
             }
             return M;
         }

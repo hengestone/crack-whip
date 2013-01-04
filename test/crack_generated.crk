@@ -4,7 +4,7 @@
 import crack.ascii radix;
 import crack.cont.array Array;
 import crack.io FStr;
-import crack.lang InvalidArgumentError;
+import crack.lang InvalidArgumentError, Buffer;
 import crack.runtime INT_SIZE;
 import whip.serializer Serializer, Materializer;
 
