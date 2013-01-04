@@ -2,13 +2,14 @@
 // 7/17/2012
 
 import crack.cont.hashmap OrderedHashMap;
+import crack.strutil StringArray, split;
 import crack.cont.list List;
 import crack.cont.array Array;
 import crack.io FStr, cout, cerr, Reader;
 import crack.lang AppendBuffer, InvalidResourceError, Buffer, Formatter,
                   Exception, IndexError, CString;
 import crack.runtime memmove, mmap, munmap, Stat, fopen, PROT_READ, MAP_PRIVATE,
-                    stat, fileno;
+                    stat, fileno, free, CFile;
 import crack.sys strerror;
 import crack.math min;
 import crack.io.readers PageBufferString, PageBufferReader, PageBuffer;
@@ -21,12 +22,23 @@ class ParseError : Exception {
     oper init() {}
 }
 
-class idlParser {
+class _fileInfo {
+    Stat info;
+    CString name;
+    oper init(Stat si, CString fname) : name=fname, info=si { }
 
+    oper del() {
+        if (!(info is null)) free(info);
+    }
+}
+
+@abstract class idlParserBase {
     ClassGenerator gen;
     PageBuffer data;
     OrderedHashMap[String, bool] filesDone = {};
+    OrderedHashMap[String, bool] pathMap = {};
     List[String] filesTodo = {};
+    StringArray paths = ["."];
     uint data_size = 0, eof = 0, s, e, p, pe, cs, ts, te, act, okp, bufsize = 1024*1024;
     int line = 1, col = 1;
 
@@ -40,6 +52,101 @@ class idlParser {
             pe = data.size;
         }
     }
+
+    _fileInfo _findFile(String fname) {
+        Stat statInfo = {};
+        _fileInfo fi = {statInfo, null};
+        for (dir :in paths) {
+            tryFname := FStr() `$dir/$fname`;
+            cerr `Trying $tryFname\n`;
+            n := CString(tryFname);
+            statErrors := stat(n.buffer, statInfo);
+            if (!statErrors) {
+                fi.name = n;
+                return fi;
+            }
+        }
+        throw InvalidResourceError(FStr() `Could not find file $fname in path $(paths.join(":"))`);
+    }
+
+    uint addPath(String path) {
+        newPath := split(path, ":");
+        if (newPath) paths.extend(newPath);
+        return paths.count();
+    }
+
+    uint setPath(String path) {
+        newPath := split(path, ":");
+        if (newPath) paths = newPath;
+        else
+            throw InvalidResourceError(FStr() `Could not determine path array from $(path)`);
+        return paths.count();
+    }
+
+    uint setPath(StringArray newPath) {
+        if (newPath) paths = newPath;
+        else
+            throw InvalidResourceError(FStr() `Could not determine path array from $(newPath.join(":"))`);
+        return paths.count();
+    }
+
+    uint __countBytes(Array[String] A) {
+        uint total;
+        for (elem :in A)
+            total += elem.size;
+        return total;
+    }
+
+
+    // Taken from strutil.StringArray.join
+    String _join(Array[String] A, String sep) {
+        # deal with the empty case
+        size := A.count();
+        if (!size)
+            return '';
+        
+        # figure out how much space we need
+        total := __countBytes(A) + sep.size * (size - 1);
+        
+        AppendBuffer buf = {total};
+        first := true;
+        for (elem :in A) {
+        
+            # add the separator for everything but the first string.
+            if (first)
+                first = false;
+            else
+                buf.extend(sep);
+
+            buf.extend(elem);
+        }
+        
+        return String(buf, true);
+
+    }
+
+    void updatePathFromFile(String fname) {
+        newPath := _join(split(fname, "/").slice(0,-1), "/");
+        if (!pathMap.get(newPath)) {
+            addPath(newPath);
+            pathMap[newPath] = true;
+            cerr `updatePathFromFile($fname): newPath=$newPath\n`;
+        }
+        
+    }
+
+    @abstract int _parse();
+    @abstract int parse(String spec);
+    @abstract int parseTodo();
+    @abstract int parseFile(String fname_in);
+
+    void formatTo(Formatter fmt) {
+      fmt.format(gen);
+    }
+}
+
+class idlParser : idlParserBase {
+
 
     %%{
         machine spec;
@@ -105,6 +212,14 @@ class idlParser {
           e = p;
           if (true) {
             incFileName := data.substr(s, e - s);
+            cerr `Parsing file $incFileName\n`;
+            _parser := idlParser(gen); // new parser object
+            _parser.setPath(paths);
+            _parser.parseFile(incFileName);
+            filesDone[incFileName] = true;
+            for (item :in _parser.filesDone) {
+                filesDone[item.key] = true;
+            }
           }
         }
 
@@ -142,7 +257,9 @@ class idlParser {
         %% write init;
     }
 
-    oper init (ClassGenerator gen0) : gen = gen0 { }
+    oper init (ClassGenerator gen0) {
+        gen = gen0 ;
+    }
 
     int _parse() {    // Do the first read. 
         if (data is null)
@@ -184,41 +301,40 @@ class idlParser {
         return _parse();
     }
 
-    int parse(Reader r) {
-        data = PageBufferReader(r); // Reads one block
-        data_size = data.size; 
-        return _parse();
-    }
+    int parseTodo() {
+        int numMessages = 0;
+        while (filesTodo) {
+            fname := filesTodo.popHead();
+            iFile := _findFile(fname); // IDL file description
+            updatePathFromFile(iFile.name);
+            cFile := fopen(iFile.name.buffer, "r".buffer); // C File struct
+            
+            fd := fileno(cFile);
 
-    int parseFile(String fname) {
-        Stat statInfo = {};
-        n := CString(fname);
-        statErrors := stat(n.buffer, statInfo);
-        if (!statErrors){
-            mode := "r";
-            file := fopen(n.buffer, mode.buffer);
-
-            if (file is null) {
-                throw InvalidResourceError(FStr() `$fname: $(strerror())`);
-            }
-            fd := fileno(file);
-
-            data_size = statInfo.st_size;
-            tdata := mmap(null, statInfo.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+            data_size = iFile.info.st_size;
+            tdata := mmap(null, iFile.info.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
             data = PageBufferString(String(byteptr(tdata), data_size, false));
             
-            if (uintz(tdata) != uintz(0)-1){
-                retval := _parse();
+            if (uintz(tdata) != uintz(0) - 1) {
+                retval := _parse(); // This might add filenames to filesTodo
                 munmap(tdata, data_size);
-                return retval;
+                numMessages += retval;
+                filesDone[fname] = true;
             }
-            else
-                throw InvalidResourceError(FStr() `$fname: $(strerror())`);
         }
-        return 0;
+        return numMessages;
     }
 
-    void formatTo(Formatter fmt){
-      fmt.format(gen);
+    int parseFile(String fname_in) {
+        filesTodo.append(fname_in);
+        return parseTodo();
+    }
+
+    int parse(Reader r) {
+        int numMessages = 0;
+        data = PageBufferReader(r); // Reads one block
+        data_size = data.size; 
+        numMessages += _parse();
+        return numMessages + parseTodo();
     }
 }
