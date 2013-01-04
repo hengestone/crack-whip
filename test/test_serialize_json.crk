@@ -1,0 +1,53 @@
+// Class serialization/deserialization using supplied functions
+import crack.lang InvalidArgumentError, Buffer;
+import crack.ascii hex;
+import crack.cont.array Array;
+import crack.io Formatter, Writer, cout, FDReader, FDWriter, FStr;
+import whip.serializer Materializer, Serializer, Serializable, cmp;
+import whip.json_serializer JsonBufferSerializer, JsonBufferMaterializer;
+import test.crack_generated_json testSerialize_Base;
+
+
+
+class testSerialize : testSerialize_Base {
+
+    void formatTo(Formatter fmt) {
+        fmt.write("testSerialize {\n");
+        fmt `   int int1 = $int1\n`;
+        fmt `   uint2 = $uint2\n`;
+        fmt `   int3 = $int3\n`;
+        fmt `   uint32 uint4 = $uint4\n`;
+        fmt `   String S = $S\n`;
+        fmt `   Array[int] A = $A\n`;
+        fmt.write("}");
+    }
+
+}
+
+testSerialize test, test2;
+
+#~ for (uint i=0; i<1; i++){
+
+  test = testSerialize();
+  cout `$test\n`;
+  sJSON := JsonBufferSerializer();
+  test.serialize(sJSON, null);
+  cout `Serialized=\n$(sJSON.getBuffer())\n`;
+
+
+  mJSON := JsonBufferMaterializer(sJSON.getBuffer());
+  test2 = testSerialize();
+  test2.int1 = 999;
+  test2.uint2 = 999;
+  test2.int3 = 999;
+  test2.uint4 = 999;
+  test2.S = "Random string";
+  test2.A = Array[int]![1,2,3,4];
+
+  test2.materialize(mJSON);
+  cout `$test2\n`;
+#~ }
+#~ 
+#~ if (test == test2) cout `ok\n`;
+
+

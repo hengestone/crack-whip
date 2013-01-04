@@ -1,0 +1,29 @@
+// Test generator class
+// Copyright 2012 Conrad Steenberg <conrad.steenberg@gmail.com>
+
+import crack.io cout;
+import whip.utils.generator Message;
+import whip.utils.crack_generator CrackClassGenerator;
+import whip.xdr_serializer crackTypes, crackSizes,
+                           XDRBufferSerializer, XDRBufferMaterializer;
+import whip.json_serializer crackTypes, crackSizes,
+                           JsonBufferSerializer, JsonBufferMaterializer;
+
+CrackClassGenerator gen = {crackTypes, crackSizes};
+
+Message msg = {};
+msg.addField("int1", "int", "-1");
+msg.addField("uint2", "uint", "1");
+msg.addField("int3", "int32", "2");
+msg.addField("uint4", "uint32", "3");
+msg.addField("S", "String", '"Hello"');
+msg.addField("A", "Array[int]", "[10]");
+
+gen.addMessage("testSerialize", msg);
+
+Message msg2 = {};
+msg2.addField("T", "testSerialize");
+
+gen.addMessage("testSerializeContainer", msg2);
+
+gen.create(cout, JsonBufferSerializer(), JsonBufferMaterializer());
