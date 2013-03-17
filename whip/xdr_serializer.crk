@@ -38,6 +38,7 @@ StringArray basicTypes = ["int", "uint", "int32", "uint32", "int64", "uint64",
                           "array[int64]", "array[uint64]", "array[float32]",
                           "array[float64]"
                          ];
+
 StringArray crackTypes = ["int", "uint", "int32", "uint32", "int64", "uint64",
                           "String", "float32", "float64", 
                           "Array[int]", "Array[uint]", "Array[int32]",
@@ -51,27 +52,6 @@ StringArray crackSizes = ["INT_SIZE", "INT_SIZE", "4", "4", "8", "8",
                           ".count()", ".count()", ".count()",
                           ".count()", ".count()"];
                           
-StringArray serialFuncs = ["xdr_encode_int", "xdr_encode_uint",
-                           "xdr_encode_int32", "xdr_encode_uint32", 
-                           "xdr_encode_int64", "xdr_encode_uint64",
-                           "xdr_encode_bool", "xdr_encode_bytes", 
-                           "xdr_encode_float32", "xdr_encode_float64",
-                           "xdr_encode_array_int", "xdr_encode_array_uint",
-                           "xdr_encode_array_int32", "xdr_encode_array_uint32",
-                           "xdr_encode_array_int64", "xdr_encode_array_uint64",
-                           "xdr_encode_array_float32", "xdr_encode_array_float64"
-                          ];
-
-StringArray deserialFuncs = ["xdr_decode_int", "xdr_decode_uint",
-                           "xdr_decode_int32", "xdr_decode_uint32", 
-                           "xdr_decode_int64", "xdr_decode_uint64",
-                           "xdr_decode_bool", "xdr_decode_bytes", 
-                           "xdr_decode_float32", "xdr_decode_float64",
-                           "xdr_decode_array_int", "xdr_decode_array_uint",
-                           "xdr_decode_array_int32", "xdr_decode_array_uint32",
-                           "xdr_decode_array_int64", "xdr_decode_array_uint64",
-                           "xdr_decode_array_float32", "xdr_decode_array_float64"
-                          ];
 // Serializer for XDR formatter buffers
 class XDRBufferSerializer : Serializer {
 
