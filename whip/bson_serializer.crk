@@ -1,0 +1,385 @@
+// Class serialization/deserialization using supplied functions
+import crack.io Formatter, Writer, cout, FDReader, FDWriter, FStr;
+import whip.serializer Materializer, Serializer, Serializable;
+
+import crack.lang ManagedBuffer, Buffer, InvalidArgumentError,
+                  InvalidResourceError, AssertionError;
+
+import crack.runtime strlen, errno;
+import crack.sys strerror;
+
+import crack.ext._mongo bson, bson_cursor,
+                        bson_new,
+                        bson_new_sized,
+                        bson_new_from_data,
+                        bson_finish,
+                        bson_reset,
+                        bson_free,
+                        bson_size,
+                        bson_data,
+                        bson_validate_key,
+
+                        bson_append_string,
+                        bson_append_double,
+                        bson_append_document,
+                        bson_append_array,
+                        bson_append_binary,
+                        bson_append_oid,
+                        bson_append_boolean,
+                        bson_append_utc_datetime,
+                        bson_append_null,
+                        bson_append_regex,
+
+                        bson_append_javascript,
+                        bson_append_symbol,
+                        bson_append_javascript_w_scope,
+                        bson_append_int32,
+                        bson_append_timestamp,
+                        bson_append_int64,
+                        bson_cursor_new,
+                        bson_find,
+                        bson_cursor_free,
+                        bson_cursor_next,
+
+                        bson_cursor_find_next,
+                        bson_cursor_find,
+                        bson_cursor_type,
+                        bson_cursor_type_as_string,
+                        bson_cursor_key,
+                        bson_cursor_get_string,
+                        bson_cursor_get_double,
+                        bson_cursor_get_document,
+                        bson_cursor_get_array,
+                        bson_cursor_get_oid,
+
+                        bson_cursor_get_boolean,
+                        bson_cursor_get_utc_datetime,
+                        bson_cursor_get_javascript,
+                        bson_cursor_get_symbol,
+                        bson_cursor_get_int32,
+                        bson_cursor_get_timestamp,
+                        bson_cursor_get_int64;
+
+
+import crack.strutil StringArray;
+import crack.ascii hex;
+import crack.cont.array Array;
+
+fmt := FStr();
+
+@import crack.ann define;
+
+StringArray basicTypes = ["int", "uint", "int32", "uint32", "int64", "uint64",
+                          "byteptr", "float32", "float64",  "array[int]",
+                          "array[uint]", "array[int32]",    "array[uint32]",
+                          "array[int64]", "array[uint64]", "array[float32]",
+                          "array[float64]"
+                         ];
+
+StringArray crackTypes = ["int", "uint", "int32", "uint32", "int64", "uint64",
+                          "String", "float32", "float", "float64", "bool",
+                          "Array[int]", "Array[uint]", "Array[int32]",
+                          "Array[uint32]", "Array[int64]", "Array[uint64]",
+                          "Array[float32]", "Array[float64]",
+                         ];
+
+StringArray crackSizes = ["INT_SIZE", "INT_SIZE", "4", "4", "8", "8",
+                          ".size", "4", "8", "8", "INT_SIZE", 
+                          ".count()", ".count()", ".count()", 
+                          ".count()", ".count()", ".count()",
+                          ".count()", ".count()"];
+                          
+// Serializer for BSON formatter buffers
+class BSONBufferSerializer : Serializer {
+
+    ManagedBuffer _buf;
+    bson _bsonStream;
+
+    void _setup(uint bufsize) {
+        _buf = ManagedBuffer(bufsize);
+        _bsonStream = bson_new_from_data(_buf.buffer, int32(_buf.cap));
+        writeId = false;
+        writeArraySize = false;
+    }
+
+    oper init () {
+        _setup(1024);
+    }
+
+    oper init(uint bufsize) {
+        _setup(bufsize);
+    }
+
+    oper init(FDWriter w) : _buf = null, _bsonStream = null {
+        throw InvalidResourceError("Not implemented");
+    }
+
+    ManagedBuffer getBuffer() {
+        return _buf;
+    }
+
+    @define formatMethod(T, BT, s) {
+        void format(T val, Buffer name) {
+            if (!bson_append_$$BT(_bsonStream, name.buffer, val))
+                throw InvalidArgumentError(fmt `Failed to element $name`);
+            _buf.size += s + name.size + 4;
+        }
+    }
+
+    @formatMethod(int32, int32, 4)
+    @formatMethod(int64, int64, 8)
+    @formatMethod(float64, double, 8)
+    @formatMethod(bool, boolean, 1)
+
+    void format(String val, Buffer name) {
+        bson_append_string(_bsonStream, name.buffer, val.buffer, int32(val.size));
+        _buf.size += val.size + name.size + 6;
+    }
+
+    @define formatMethodUnsupported(T, RT, BT, s) {
+        void format(T val, Buffer name) {
+            if (!bson_append_$$BT(_bsonStream, name.buffer, RT(val)))
+                throw InvalidArgumentError(fmt `Failed to element $name`);
+            _buf.size += s + name.size + 4;
+        }
+    }
+
+    @formatMethodUnsupported(int, int32, int32, 4)
+    @formatMethodUnsupported(uint, int32, int32, 4)
+    @formatMethodUnsupported(int16, int32, int32, 4)
+    @formatMethodUnsupported(uint16, int32, int32, 4)
+    @formatMethodUnsupported(uint32, int32, int32, 4)
+    @formatMethodUnsupported(uint64, int64, int64, 8)
+    @formatMethodUnsupported(float32, float64, double, 8)
+    @formatMethodUnsupported(float, float64, double, 8)
+    @formatMethodUnsupported(float32, float64, double, 8)
+
+    @define formatMethodArray(T, BT, s) {
+        void format(Array[T] val, Buffer name) {
+            fmt := FStr();
+            bsonArray := bson_new();
+            data := val.data();
+            uint cnt = val.count();
+            for (uint i; i < cnt; i++) {
+                d := fmt `$i\0`;
+                if (!bson_append_$$BT(bsonArray, d.buffer, data[i]))
+                    throw InvalidArgumentError(fmt `Failed to element $name`);
+                _buf.size += d.size + s + 4;
+            }
+            bson_finish(bsonArray);
+            
+            bson_append_array(_bsonStream, name.buffer, bsonArray);
+        }
+    }
+
+    @formatMethodArray(int32, int32, 4)
+    @formatMethodArray(int64, int64, 8)
+    @formatMethodArray(float64, double, 8)
+    @formatMethodArray(bool, boolean, 1)
+
+    @define formatMethodArrayUnsupported(T, RT, BT, s) {
+        void format(Array[T] val, Buffer name) {
+            fmt := FStr();
+            bsonArray := bson_new();
+            data := val.data();
+            uint cnt = val.count();
+            for (uint i; i < cnt; i++) {
+                d := fmt `$i\0`;
+                if (!bson_append_$$BT(bsonArray, d.buffer, RT(data[i])))
+                    throw InvalidArgumentError(fmt `Failed to element $name`);
+                _buf.size += d.size + s + 4;
+            }
+            bson_finish(bsonArray);
+            bson_append_array(_bsonStream, name.buffer, bsonArray);
+        }
+    }
+
+    @formatMethodArrayUnsupported(int16, int32, int32, 4)
+    @formatMethodArrayUnsupported(uint16, int32, int32, 4)
+    @formatMethodArrayUnsupported(int, int32, int32, 4)
+    @formatMethodArrayUnsupported(uint32, int32, int32, 4)
+    @formatMethodArrayUnsupported(uint64, int64, int64, 8)
+    @formatMethodArrayUnsupported(uint, int32, int32, 4)
+    @formatMethodArrayUnsupported(float, float64, double, 4)
+    @formatMethodArrayUnsupported(float32, float64, double, 4)
+
+    void format(Array[String] val, Buffer name) {
+        fmt := FStr();
+        bsonArray := bson_new();
+        String d;
+        uint cnt = val.count();
+        for (uint i; i < cnt; i++) {
+            d = fmt `$i\0`;
+            bson_append_string(_bsonStream, d.buffer, val[i].buffer,
+                               int32(val[i].size));
+            _buf.size += d.size + val[i].size + 4;
+        }
+        bson_finish(bsonArray);
+        bson_append_array(_bsonStream, name.buffer, bsonArray);
+    }
+
+    void write(Buffer buf) {
+        format(buf, null);
+    }
+
+    oper del() {
+      if (!(_bsonStream is null)) {
+        bson_free(_bsonStream);
+      }
+    }
+}
+
+class BSONBufferMaterializer : Materializer {
+
+    bson _b;
+    bson_cursor _c;
+    Buffer _buf;
+    bool bsonOwner = false;
+    
+    oper init (bson b) : _b = b, _c = bson_cursor_new(b) {
+    }
+
+    // We need this for the generator
+    oper init () {
+        _b = bson_new();
+        _c = bson_cursor_new(_b);
+    }
+
+    oper init (Buffer buf) : _buf = buf  {
+        _b = bson_new_from_data(_buf.buffer, int32(_buf.size));
+        _c = bson_cursor_new(_b);
+        bsonOwner = true;
+    }
+
+    oper init(FDReader r) : _buf = null {
+        throw InvalidResourceError("Not implemented");
+    }
+
+    Buffer getBuffer() {
+        return _buf;
+    }
+
+    void _handleError(String tpe) {
+        throw InvalidResourceError(
+            FStr() `Error $(strerror()) materializing type $(tpe)`
+        );
+    }
+    
+    @define formatMethod(T, RT) {
+        T format(T val, Buffer name) {
+            return T(bson_cursor_get_$$RT(_c));
+        }
+    }
+
+    bool format(bool val, Buffer name) {
+        return bson_cursor_get_boolean(_c);
+    }
+
+
+    @formatMethod(int, int64)
+    @formatMethod(uint, int64)
+
+    @formatMethod(int16, int32)
+    @formatMethod(uint16, int32)
+
+    @formatMethod(int32, int32)
+    @formatMethod(uint32, int32)
+
+    @formatMethod(uint64, int64)
+    @formatMethod(int64, int64)
+    @formatMethod(float32, double)
+    @formatMethod(float64, double)
+
+    // No casting needed
+    @define formatMethodArrayDirect(T, RT) {
+        Array[T] format(Array[T] val, Buffer name) {
+            // Read the array length so we can allocate enough space
+            BA := bson_cursor_get_array(_c); // Get the array document
+            if (BA is null)
+                throw AssertionError(I"Trying to materialize non-array BSON
+                                       object as an array");
+            cA :=  bson_cursor_new(BA);
+
+            A := Array[T]();
+            while (bson_cursor_next(cA))
+                A.append(bson_cursor_get_$$RT(_c));
+            bson_cursor_free(cA);
+            bson_free(BA);
+            return A
+        }
+    }
+
+    @define formatMethodArray(T, RT) {
+        Array[T] format(Array[T] val, Buffer name) {
+            // Read the array length so we can allocate enough space
+            BA := bson_cursor_get_array(_c); // Get the array document
+            if (BA is null)
+                throw AssertionError(I"Trying to materialize non-array BSON
+                                       object as an array");
+            cA :=  bson_cursor_new(BA);
+
+            A := Array[T]();
+            while (bson_cursor_next(cA))
+                A.append(T(bson_cursor_get_$$RT(_c)));
+            bson_cursor_free(cA);
+            bson_free(BA);
+            return A
+        }
+    }
+
+    @formatMethodArray(int, int64)
+    @formatMethodArray(uint, int64)
+
+    @formatMethodArray(int16, int32)
+    @formatMethodArray(uint16, int32)
+
+    @formatMethodArrayDirect(int32, int32)
+    @formatMethodArray(uint32, int32)
+
+    @formatMethodArrayDirect(int64, int64)
+    @formatMethodArray(uint64, int64)
+
+    @formatMethodArray(float32, double)
+    @formatMethodArray(float64, double)
+    @formatMethodArrayDirect(bool, boolean)
+
+    String format(String val, Buffer name) {
+        bytes := bson_cursor_get_string(_c);
+        if (bytes is null)
+            throw AssertionError("NULL found when materializing String");
+        // Make a copy of the string
+        return String(bytes, strlen(bytes), false);
+    }
+
+    Array[String] format(Array[String] val, Buffer name) {
+        // Read the array length so we can allocate enough space
+        BA := bson_cursor_get_array(_c); // Get the array document
+        if (BA is null)
+            throw AssertionError(I"Trying to materialize non-array BSON object
+                                   as an array");
+        cA :=  bson_cursor_new(BA);
+
+        A := Array[String]();
+        while (bson_cursor_next(cA)) {
+            bytes := bson_cursor_get_string(_c);
+            if (bytes is null)
+                throw AssertionError("NULL found when materializing String");
+            // Make a copy of the string
+            A.append(String(bytes, strlen(bytes), false));
+        }
+
+        bson_cursor_free(cA);
+        bson_free(BA);
+        return A
+    }
+
+    void write(Buffer buf){
+        format(buf, null);
+    }
+
+    oper del() {
+      if (!(_b is null)) {
+        bson_free(_b);
+      }
+    }
+}

@@ -13,13 +13,14 @@ VERSION=$(lastword $(shell crack --version))
 INSTALLDIR=${PREFIX}/lib/crack-${VERSION}/whip
 libs=whip/entity.crk whip/interpreter.crk whip/sockserver.crk
 serializer_libs=whip/serializer.crk whip/xdr_serializer.crk \
-                whip/json_serializer.crk
+                whip/json_serializer.crk whip/bson_serializer.crk
 
 tests=test/test_interpreter test/test_entity test/test_serialize \
       test/test_generator test/test_ruby_generator \
       test/ruby_generated.rb test/crack_generated.crk \
       test/crack_generated_json.crk \
-      test/test_msginterpreter test/test_msgclient
+      test/test_msginterpreter test/test_msgclient \
+      test/test_generator_json test/test_generator_bson
 
 default: $(tests) bin/whipclass
 doc: doc/interp_states.svg
@@ -29,6 +30,12 @@ test/test_interpreter: $(libs)
 test/test_entity: whip/entity.crk
 test/test_generator: whip/utils/generator.crk $(serializer_libs) \
                      test/test_generator.crk whip/utils/crack_generator.crk
+
+test/test_generator_json: whip/utils/generator.crk $(serializer_libs) \
+                     test/test_generator_json.crk whip/utils/crack_generator.crk
+
+test/test_generator_bson: whip/utils/generator.crk $(serializer_libs) \
+                     test/test_generator_bson.crk whip/utils/crack_generator.crk
 
 test/test_ruby_generator: whip/utils/generator.crk $(serializer_libs) \
                      test/test_ruby_generator.crk whip/utils/ruby_generator.crk

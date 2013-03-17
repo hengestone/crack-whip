@@ -2,7 +2,7 @@
 import crack.io Formatter, Writer, cout, FDReader, FDWriter, FStr;
 import crack.lang ManagedBuffer, Buffer, InvalidArgumentError, InvalidResourceError,
                   AssertionError;
-
+import crack.runtime INT_SIZE;
 import crack.strutil StringArray;
 import crack.ascii hex;
 import crack.cont.array Array;
@@ -20,19 +20,22 @@ StringArray basicTypes = ["int", "String", "float", "bool", "object",
                           "array[bool]", "array[object]"
                          ];
 
-StringArray crackTypes = ["int", "string", "float", "bool", "HashMap",
-                          "Array[int]", "Array[string]", "Array[float]",
-                          "Array[bool]", "Array[object]"
+StringArray crackTypes = ["int32", "uint32", "int64", "uint64",
+                          "String", "float32", "float64", 
+                          "Array[int]", "Array[uint]", "Array[int32]",
+                          "Array[uint32]", "Array[int64]", "Array[uint64]",
+                          "Array[float32]", "Array[float64]",
                          ];
 
-StringArray crackSizes = [".count()", ".count()", ".count()", 
+StringArray crackSizes = ["4", "4", "8", "8", ".size", "4", "8",
+                          ".count()", ".count()", ".count()", 
                           ".count()", ".count()", ".count()",
                           ".count()", ".count()"];
                           
 
 class noCopyStringFormatter : JsonStringFormatter {
     oper init(): JsonStringFormatter() {}
-    oper init(uint bufsize) : JsonStringFormatter(bufsize) {}
+    oper init() : JsonStringFormatter() {}
     Buffer getBuffer() { return Buffer(_writer.buffer, _writer.size); }
 }
 
@@ -49,7 +52,7 @@ class JsonBufferSerializer : Serializer {
         itemSep = ",";
     }
 
-    oper init () : _jsonBuf(1024) {
+    oper init () : _jsonBuf() {
         _setup();
     }
 
