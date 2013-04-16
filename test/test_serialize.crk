@@ -2,13 +2,13 @@
 import crack.ascii hex;
 import crack.cont.array Array;
 import crack.io Formatter, Writer, cout, FDReader, FDWriter, FStr;
-import crack.lang InvalidArgumentError;
+import crack.lang InvalidArgumentError, Buffer;
 import whip.serializer Materializer, Serializer, Serializable, cmp;
 import whip.xdr_serializer XDRBufferSerializer, XDRBufferMaterializer;
 
 
 // This is what we will autogenerate
-class testSerialize_Base : Serializable {
+class testSerialize_Base {
 
     int int1 = -1;
     uint uint2 = 1;
@@ -17,8 +17,8 @@ class testSerialize_Base : Serializable {
     String S = "Hello";
     Array[int] A = [10];
 
-    void serialize(Serializer sr) {
-        sr.write(sr.prefix);
+    void serialize(Serializer sr, Buffer name) {
+        if (sr.hasPrefix) sr.prefix(name);
         sr.format(int1, "int1");
         sr.write(sr.itemSep);
         sr.format(uint2, "uint2");
@@ -30,10 +30,10 @@ class testSerialize_Base : Serializable {
         sr.format(S, "S");
         sr.write(sr.itemSep);
         sr.format(A, "A");
-        sr.write(sr.postfix);
+        if (sr.hasPostfix) sr.postfix(name);
     }
 
-    void materialize(Materializer m) {
+    void materialize(Materializer m, Buffer name) {
         int1 = m.format(int1, "int1");
         uint2 = m.format(uint2, "uint2");
         int3 = m.format(int3, "int3");
@@ -102,7 +102,7 @@ for (uint i=0; i<1; i++){
   test = testSerialize();
   cout `$test\n`;
   sXDR := XDRBufferSerializer(test.sizeNeeded());
-  test.serialize(sXDR);
+  test.serialize(sXDR, null);
 
 
   mXDR := XDRBufferMaterializer(sXDR.getBuffer());
@@ -114,7 +114,7 @@ for (uint i=0; i<1; i++){
   test2.S = "Random string";
   test2.A = Array[int]![1,2,3,4];
 
-  test2.materialize(mXDR);
+  test2.materialize(mXDR, null);
 }
 
 if (test == test2) cout `ok\n`;

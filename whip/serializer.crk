@@ -2,6 +2,7 @@
 // only for elementary types and arrays
 
 // Copyright 2012 Conrad Steenberg <conrad.steenberg@gmail.com>
+
 import crack.cont.array Array;
 import crack.lang Buffer;
 import crack.io FDReader, FDWriter;
@@ -44,8 +45,8 @@ int cmp(bool a, bool b) {
 @abstract class Serializable;
 
 @abstract class Serializer {
-    String prefix = "";
-    String postfix = "";
+    bool hasPrefix = false;
+    bool hasPostfix = false;
     String itemSep = "";
     bool writeId = false;
     bool writeArraySize = false;
@@ -76,10 +77,14 @@ int cmp(bool a, bool b) {
     @formatMethod(String)
 
     @abstract void write(Buffer buf);
-
+    @abstract void prefix(Buffer name);
+    @abstract void postfix(Buffer name);
 }
 
 @abstract class Materializer {
+
+    bool hasPrefix = false;
+    bool hasPostfix = false;
 
     oper init() {}
 
@@ -107,6 +112,8 @@ int cmp(bool a, bool b) {
     @formatMethod(String)
 
     @abstract void write(Buffer buf);
+    @abstract void prefix(Buffer name);
+    @abstract void postfix(Buffer name);
 
 }
 

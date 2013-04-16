@@ -63,9 +63,11 @@ class XDRBufferSerializer : Serializer {
         _xdrStream = xdrmem_create(_xdrBuf.buffer, _xdrBuf.cap, XDR_ENCODE);
         writeId = true;
         writeArraySize = true;
+        hasPrefix = false;
+        hasPostfix = false;
     }
 
-    oper init () {
+    oper init() {
         _setup(1024);
     }
 
@@ -80,6 +82,9 @@ class XDRBufferSerializer : Serializer {
     Buffer getBuffer() {
         return _xdrBuf;
     }
+
+    void prefix(Buffer name) { }
+    void postfix(Buffer name) { }
 
     @define formatMethod(T, s) {
         void format(T val, Buffer name) {
@@ -183,7 +188,7 @@ class XDRBufferMaterializer : Materializer {
     Buffer _xdrBuf;
     xdr _xdrStream;
 
-    oper init () {
+    oper init() {
     }
 
     oper init (Buffer buf) : _xdrBuf = buf {
@@ -197,6 +202,9 @@ class XDRBufferMaterializer : Materializer {
     Buffer getBuffer() {
         return _xdrBuf;
     }
+
+    void prefix(Buffer name) { }
+    void postfix(Buffer name) { }
 
     void _handleError(String tpe) {
         throw InvalidResourceError(FStr() `Error $(xdr_error()) materializing type $(tpe) at position $(xdr_getpos(_xdrStream))`);
