@@ -91,18 +91,20 @@ StringArray crackSizes = ["INT_SIZE", "INT_SIZE", "4", "4", "8", "8",
                           
 // Serializer for BSON formatter buffers
 class BSONBufferSerializer : Serializer {
-
-    ManagedBuffer _buf;
-    bson _bsonStream;
+    bson _b;
+    bool _finished;
+    bson _tmpBSON = null;
 
     void _setup(uint bufsize) {
-        _buf = ManagedBuffer(bufsize);
-        _bsonStream = bson_new_from_data(_buf.buffer, int32(_buf.cap));
+        _b = bson_new_sized(int32(bufsize));
+        _finished = false;
         writeId = false;
         writeArraySize = false;
+        hasPrefix = true;
+        hasPostfix = true;
     }
 
-    oper init () {
+    oper init() {
         _setup(1024);
     }
 
@@ -110,19 +112,45 @@ class BSONBufferSerializer : Serializer {
         _setup(bufsize);
     }
 
-    oper init(FDWriter w) : _buf = null, _bsonStream = null {
+    oper init(FDWriter w) : _b = null {
         throw InvalidResourceError("Not implemented");
     }
 
-    ManagedBuffer getBuffer() {
-        return _buf;
+    void prefix(Buffer name) {
+        _tmpBSON = null;
+        if (!(name is null) && name.size > 0) {
+            _tmpBSON = _b;
+            _b = bson_new();
+        }
+    }
+
+    void postfix(Buffer name) {
+        if (!(_tmpBSON is null)) {
+            bson_append_document(_tmpBSON, name.buffer, _b);
+            _b = _tmpBSON;
+        }
+    }
+
+    bson getBSON() {
+        return _b;
+    }
+
+    void setBSON(bson b) {
+        _b = b;
+    }
+
+    Buffer serialized() {
+        if (!_finished) {
+            bson_finish(_b);
+            _finished = true;
+        }
+        return Buffer(bson_data(_b), bson_size(_b));
     }
 
     @define formatMethod(T, BT, s) {
         void format(T val, Buffer name) {
-            if (!bson_append_$$BT(_bsonStream, name.buffer, val))
+            if (!bson_append_$$BT(_b, name.buffer, val))
                 throw InvalidArgumentError(fmt `Failed to element $name`);
-            _buf.size += s + name.size + 4;
         }
     }
 
@@ -132,15 +160,13 @@ class BSONBufferSerializer : Serializer {
     @formatMethod(bool, boolean, 1)
 
     void format(String val, Buffer name) {
-        bson_append_string(_bsonStream, name.buffer, val.buffer, int32(val.size));
-        _buf.size += val.size + name.size + 6;
+        bson_append_string(_b, name.buffer, val.buffer, int32(val.size));
     }
 
     @define formatMethodUnsupported(T, RT, BT, s) {
         void format(T val, Buffer name) {
-            if (!bson_append_$$BT(_bsonStream, name.buffer, RT(val)))
+            if (!bson_append_$$BT(_b, name.buffer, RT(val)))
                 throw InvalidArgumentError(fmt `Failed to element $name`);
-            _buf.size += s + name.size + 4;
         }
     }
 
@@ -164,11 +190,10 @@ class BSONBufferSerializer : Serializer {
                 d := fmt `$i\0`;
                 if (!bson_append_$$BT(bsonArray, d.buffer, data[i]))
                     throw InvalidArgumentError(fmt `Failed to element $name`);
-                _buf.size += d.size + s + 4;
             }
             bson_finish(bsonArray);
             
-            bson_append_array(_bsonStream, name.buffer, bsonArray);
+            bson_append_array(_b, name.buffer, bsonArray);
         }
     }
 
@@ -187,10 +212,9 @@ class BSONBufferSerializer : Serializer {
                 d := fmt `$i\0`;
                 if (!bson_append_$$BT(bsonArray, d.buffer, RT(data[i])))
                     throw InvalidArgumentError(fmt `Failed to element $name`);
-                _buf.size += d.size + s + 4;
             }
             bson_finish(bsonArray);
-            bson_append_array(_bsonStream, name.buffer, bsonArray);
+            bson_append_array(_b, name.buffer, bsonArray);
         }
     }
 
@@ -210,12 +234,11 @@ class BSONBufferSerializer : Serializer {
         uint cnt = val.count();
         for (uint i; i < cnt; i++) {
             d = fmt `$i\0`;
-            bson_append_string(_bsonStream, d.buffer, val[i].buffer,
+            bson_append_string(_b, d.buffer, val[i].buffer,
                                int32(val[i].size));
-            _buf.size += d.size + val[i].size + 4;
         }
         bson_finish(bsonArray);
-        bson_append_array(_bsonStream, name.buffer, bsonArray);
+        bson_append_array(_b, name.buffer, bsonArray);
     }
 
     void write(Buffer buf) {
@@ -223,40 +246,84 @@ class BSONBufferSerializer : Serializer {
     }
 
     oper del() {
-      if (!(_bsonStream is null)) {
-        bson_free(_bsonStream);
+      if (!(_b is null)) {
+        bson_free(_b);
       }
     }
 }
 
 class BSONBufferMaterializer : Materializer {
 
-    bson _b;
-    bson_cursor _c;
+    bson _b, _tmpBSON;
+    bson_cursor _c, _tmpBSONCursor;
     Buffer _buf;
-    bool bsonOwner = false;
+    
+
+    void _setup() {
+        hasPrefix = true;
+        hasPostfix = true;
+    }
     
     oper init (bson b) : _b = b, _c = bson_cursor_new(b) {
     }
 
     // We need this for the generator
-    oper init () {
+    oper init() {
         _b = bson_new();
         _c = bson_cursor_new(_b);
+        _setup();
     }
 
-    oper init (Buffer buf) : _buf = buf  {
+    oper init(Buffer buf) : _buf = buf  {
         _b = bson_new_from_data(_buf.buffer, int32(_buf.size));
         _c = bson_cursor_new(_b);
-        bsonOwner = true;
+        _setup();
     }
 
     oper init(FDReader r) : _buf = null {
         throw InvalidResourceError("Not implemented");
     }
 
+    void prefix(Buffer name) {
+        _tmpBSON = null;
+        _tmpBSONCursor = null;
+        if (!(name is null) && name.size > 0) {
+            _tmpBSON = _b;
+            _tmpBSONCursor = _c;
+            if (bson_cursor_next(_c)) { // TODO handle error case
+                _b = bson_cursor_get_document(_c);
+                _c = bson_cursor_new(_b);
+            }
+        }
+    }
+
+    void postfix(Buffer name) {
+        if (!(_tmpBSON is null)) {
+            bson_cursor_free(_c);
+            bson_free(_b);
+            _b = _tmpBSON;
+            _c = _tmpBSONCursor;
+        }
+    }
+
     Buffer getBuffer() {
         return _buf;
+    }
+
+    bson getBSON() {
+        return _b;       
+    }
+
+    bson_cursor getBSONCursor() {
+        return _c;       
+    }
+
+    void setBSON(bson newb) {
+        _b = newb;
+    }
+
+    void getBSONCursor(bson_cursor newc) {
+        _c = newc;       
     }
 
     void _handleError(String tpe) {

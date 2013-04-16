@@ -72,8 +72,8 @@ class RubyClassGenerator : ClassGenerator {
     itemSep := sr.itemSep.size > 0;
 
     fmt `\n$(indent)def serialize(sr, name)\n`;
-    if (sr.prefix.size > 0)
-      fmt `$(indent)sr.write(sr.prefix)\n`;
+    if (sr.hasPrefix)
+      fmt `$(indent*2)sr.prefix()\n`;
 
     if (sr.writeId) {
       fmt `$(indent*2)sr.uint32(@__id, "__whipMessageId")\n`;
@@ -103,6 +103,10 @@ class RubyClassGenerator : ClassGenerator {
         fmt `$(indent*2)$(mname).serialize(sr, mname);\n`;
       cnt++;
     }
+
+    if (sr.hasPostfix)
+      fmt `$(indent*2)sr.postfix()\n`;
+
     fmt `$(indent)end\n`;
     return cnt;
   }
@@ -110,9 +114,12 @@ class RubyClassGenerator : ClassGenerator {
   // Write materialize method
   int _writeMaterialize(Formatter fmt, Message msg, Serializer sr, Materializer mt) {
     uint cnt = 0;
-    fmt `\n$(indent)def materialize(m)\n`;
+    fmt `\n$(indent)def materialize(mt)\n`;
+    if (mt.hasPrefix)
+      fmt `$(indent*2)m.prefix()\n`;
+
     if (sr.writeId) {
-          fmt `$(indent*2)__new_id=m.uint32("__whipMessageId")\n`;
+          fmt `$(indent*2)__new_id=mt.uint32("__whipMessageId")\n`;
           fmt `$(indent*2)raise 'message id mismatch for $(capitalize(__cname)), got #{__new_id}, expected #{@__id}' if __new_id != @__id\n`;
       }
 
@@ -125,11 +132,11 @@ class RubyClassGenerator : ClassGenerator {
           l := member.type.size;
           subtype := toLower(member.type.slice(6, l - 1));
           if (builtins.hasKey(subtype))
-            fmt `@$(mname) = m.array(m.$(subtype)_lambda, nil)\n`;
+            fmt `@$(mname) = mt.array(mt.$(subtype)_lambda, nil)\n`;
           else
-            fmt `@$(mname) = m.array(nil, $(subtype))\n`; // Compound Array
+            fmt `@$(mname) = mt.array(nil, $(subtype))\n`; // Compound Array
         } else {
-          fmt `@$mname = m.$(toLower(member.type))()\n`;
+          fmt `@$mname = mt.$(toLower(member.type))()\n`;
         }
       }
       else {
@@ -137,6 +144,10 @@ class RubyClassGenerator : ClassGenerator {
       }
       cnt++;
     }
+
+    if (mt.hasPostfix)
+      fmt `$(indent*2)mt.postfix()\n`;
+
     fmt `$(indent)end\n`;
     return cnt;
   }

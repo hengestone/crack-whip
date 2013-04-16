@@ -15,12 +15,13 @@ import whip.utils.ruby_xdr_serializer rubyTypes, rubySizes;
 import whip.xdr_serializer crackTypes, crackSizes, XDRBufferSerializer,
                            XDRBufferMaterializer;
 import whip.json_serializer JsonBufferSerializer, JsonBufferMaterializer;
+import whip.bson_serializer BSONBufferSerializer, BSONBufferMaterializer;
 
 CmdOptions options = [Option("help",        "h", "Show help message", "f", CMD_BOOL),
                       Option("idl",         "i", "IDL file to parse", "", CMD_STR),
                       Option("out",         "o", "Name of output file", "", CMD_STR),
                       Option("lang",        "l", "Output language", "crack", CMD_STR),
-                      Option("serializer",  "s", "Serializer [json,xdr]", "json", CMD_STR),];
+                      Option("serializer",  "s", "Serializer [bson, json, xdr]", "json", CMD_STR),];
 
 // Parse options passed by the system
 options.parse(argv, false);
@@ -52,9 +53,11 @@ parser.parseFile(options.getString("idl"));
 serializer := options.getString("serializer");
 if (serializer == "json")
     parser.gen.create(cout, JsonBufferSerializer(), JsonBufferMaterializer());
+else if (serializer == "bson")
+    parser.gen.create(cout, BSONBufferSerializer(), BSONBufferMaterializer());
 else if (serializer == "xdr")
     parser.gen.create(cout, JsonBufferSerializer(), XDRBufferMaterializer());
 else  {
-  cerr `Unknown output serializer $serializer, must be one of "json" or "xdr"\n`;
+  cerr `Unknown output serializer $serializer, must be one of "bson", "json" or "xdr"\n`;
   exit(1);
 }

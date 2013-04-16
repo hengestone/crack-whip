@@ -47,8 +47,8 @@ class JsonBufferSerializer : Serializer {
 
     void _setup() {
         writeId = false;
-        prefix = "{";
-        postfix = "}";
+        hasPrefix = true;
+        hasPostfix = true;
         itemSep = ",";
     }
 
@@ -56,13 +56,25 @@ class JsonBufferSerializer : Serializer {
         _setup();
     }
 
-    oper init (uint bufsize) { //: _jsonBuf(bufsize) {
+    oper init (uint bufsize) {
         _setup();
     }
 
     oper init(FDWriter w) : _jsonBuf = null {
         throw InvalidResourceError("Not implemented");
     }
+
+    void prefix(Buffer name) {
+        if (!(name is null) && name.size > 0) {
+            write(FStr() `$name:`);
+        }
+        write("{");
+    }
+
+    void postfix(Buffer name) {
+        write("}");
+    }
+
 
     Buffer getBuffer() {
         if (_jsonBuf is null) {
@@ -133,7 +145,7 @@ class JsonBufferMaterializer : Materializer {
 
     oper init() {} // Needed for generator
 
-    oper init (Buffer buf) : _jsonBuf = buf, _parser() {
+    oper init(Buffer buf) : _jsonBuf = buf, _parser() {
         _initResult(_parser.parse(_jsonBuf).result);
     }
 
@@ -148,6 +160,11 @@ class JsonBufferMaterializer : Materializer {
     Buffer getBuffer() {
         return _jsonBuf;
     }
+
+    void prefix(Buffer name) {  }
+
+    void postfix(Buffer name) {  }
+
 
     @define formatMethodDirect(T, jT) {
         T format(T val, Buffer name) {

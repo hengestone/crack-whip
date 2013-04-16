@@ -49,7 +49,10 @@ test/crack_generated.crk: test/test_generator
 	$< > $@
 
 test/crack_generated_json.crk: bin/whipclass 
-	$< --idl=test/test_message.whipdl --lang=crack > $@
+	$< --idl=test/test_message.whipdl --lang=crack --serializer=json> $@
+
+test/crack_generated_bson.crk: bin/whipclass 
+	$< --idl=test/test_message.whipdl --lang=crack --serializer=bson > $@
 
 test/test_msginterpreter: test/test_msginterpreter.crk whip/msgserver.crk \
                           $(libs) $(serializer_libs)
@@ -71,6 +74,7 @@ bin/whipclass: src/whipclass.crk whip/utils/idl_parser.crk \
 install:
 	mkdir -p ${INSTALLDIR}
 	install -C -D -d whip ${INSTALLDIR}
+	install -C bin/whipclass ${PREFIX}/bin/whipclass
 
 
 doc/interp_states.svg: doc/interp_states.dot
