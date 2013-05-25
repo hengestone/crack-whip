@@ -241,6 +241,30 @@ class BSONBufferSerializer : Serializer {
         bson_append_array(_b, name.buffer, bsonArray);
     }
 
+    void format(Array[Serializable] val, Buffer name) {
+        fmt := FStr();
+        bsonArray := bson_new();
+        uint cnt = val.count();
+
+        if (cnt > 0) {
+            data := val.data();
+            bson tmpBson = _b;
+            bson elem;
+            obj := val[0];
+
+            for (uint i; i < cnt; i++) {
+                index := fmt `$i\0`;
+                elem = bson_new();
+                _b = elem;
+                val[i].serialize(this, null);
+                bson_append_document(bsonArray, index.buffer, elem);
+            }
+            _b = tmpBson;            
+        }
+        bson_append_array(_b, name.buffer, bsonArray);
+    }
+
+
     void write(Buffer buf) {
         format(buf, null);
     }
@@ -322,7 +346,7 @@ class BSONBufferMaterializer : Materializer {
         _b = newb;
     }
 
-    void getBSONCursor(bson_cursor newc) {
+    void setBSONCursor(bson_cursor newc) {
         _c = newc;       
     }
 
@@ -437,8 +461,90 @@ class BSONBufferMaterializer : Materializer {
 
         bson_cursor_free(cA);
         bson_free(BA);
+        return A;
+    }
+
+    Array[Serializable] formatArray(function[Serializable,
+                                    Materializer, Buffer] cons,
+                            Buffer name) {
+        // Read the array length so we can allocate enough space
+        BA := bson_cursor_get_array(_c); // Get the array document
+        if (BA is null)
+            throw AssertionError(I"Trying to materialize non-array BSON object
+                                   as an array");
+        cA :=  bson_cursor_new(BA);
+        bson tmpBson;
+
+        A := Array[Serializable]();
+        while (bson_cursor_next(cA)) {
+            tmpBson = _b;
+            _b = bson_cursor_get_document(_c);
+            if (_b is null)
+                throw AssertionError("NULL found when materializing Serializable");
+            // Make a copy of the string
+            A.append(cons(this, null));
+        }
+
+        bson_cursor_free(cA);
+        bson_free(BA);
         return A
     }
+
+    class MaterializerIter {
+        BSONBufferMaterializer __mt;
+        bson_cursor __c = null;
+        bson        __b;
+        bool __first = true;
+        uint __index = 0;
+    
+        oper init(BSONBufferMaterializer mt) : __mt = mt {
+            __b = bson_cursor_get_array(mt.getBSONCursor());
+            if (!(__b is null)) // TODO raise exception is not an array
+                __c = bson_cursor_new(__b);
+        }
+
+        BSONBufferMaterializer elem() {
+            return __mt;
+        }
+
+        @final
+        bool next() {
+            if (bson_cursor_next(__c)) {
+                __b = bson_cursor_get_document(__c);
+                __mt.setBSON(__b);
+                __index++;
+            }
+            else __b = null;
+            return !(__b is null);
+        }
+
+        @final
+        bool nx() {
+            if (__first) {
+                __first = false;
+                return !(__b is null);
+            } else {
+                return next();
+            }
+        }
+        
+        @final uint _getIndex() { return __index; }
+        
+        bool isTrue() {
+            return !(__b is null);
+        }
+
+        oper del() {
+            bson_cursor_free(__c);
+            if (!(__b is null))
+                bson_free(__b);
+        }
+    }
+
+    MaterializerIter iter() {
+        return MaterializerIter(this);
+    }
+
 
     void write(Buffer buf){
         format(buf, null);

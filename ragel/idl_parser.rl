@@ -14,7 +14,9 @@ import crack.sys strerror;
 import crack.math min;
 import crack.io.readers PageBufferString, PageBufferReader, PageBuffer;
 import whip.utils.generator Message, ClassGenerator;
+import crack.logger Logger, DEBUG, FATAL, ERROR, INFO;
 
+sfmt := FStr(); // string formatter
 uint indentWidth = 2;
 
 class ParseError : Exception {
@@ -42,6 +44,8 @@ class _fileInfo {
     uint data_size = 0, eof = 0, s, e, p, pe, cs, ts, te, act, okp, bufsize = 1024*1024;
     int line = 1, col = 1;
 
+    Logger logger;
+
     void _readTo(uint i){
         if (i>data.size){
             try {
@@ -58,7 +62,7 @@ class _fileInfo {
         _fileInfo fi = {statInfo, null};
         for (dir :in paths) {
             tryFname := FStr() `$dir/$fname`;
-            cerr `Trying $tryFname\n`;
+            logger.debug(sfmt `Trying $tryFname`);
             n := CString(tryFname);
             statErrors := stat(n.buffer, statInfo);
             if (!statErrors) {
@@ -130,7 +134,7 @@ class _fileInfo {
         if (!pathMap.get(newPath)) {
             addPath(newPath);
             pathMap[newPath] = true;
-            cerr `updatePathFromFile($fname): newPath=$newPath\n`;
+            logger.debug(sfmt `updatePathFromFile($fname): newPath=$newPath`);
         }
         
     }
@@ -212,7 +216,7 @@ class idlParser : idlParserBase {
           e = p;
           if (true) {
             incFileName := data.substr(s, e - s);
-            cerr `Parsing file $incFileName\n`;
+            logger.debug(sfmt `Parsing file $incFileName`);
             _parser := idlParser(gen); // new parser object
             _parser.setPath(paths);
             _parser.parseFile(incFileName);
@@ -258,7 +262,8 @@ class idlParser : idlParserBase {
     }
 
     oper init (ClassGenerator gen0) {
-        gen = gen0 ;
+        gen = gen0;
+        logger = Logger(cerr, INFO);
     }
 
     int _parse() {    // Do the first read. 
