@@ -1,8 +1,9 @@
 // Class serialization/deserialization using supplied functions
 import crack.io Formatter, Writer, cout, FDReader, FDWriter, FStr;
-import whip.serializer Materializer, Serializer, Serializable;
-import crack.lang ManagedBuffer, Buffer, InvalidArgumentError, InvalidResourceError,
-                  AssertionError;
+import whip.serializer Materializer, MaterializerIter,
+                       Serializer, Serializable;
+import crack.lang ManagedBuffer, Buffer, InvalidArgumentError,
+                    InvalidResourceError, AssertionError;
 
 import crack.runtime XDR_ENCODE, XDR_DECODE, XDR_FREE, xdr, xdrmem_create,
                         xdr_encode_bool, xdr_decode_bool, xdr_error,
@@ -331,8 +332,27 @@ class XDRBufferMaterializer : Materializer {
     @formatMethodArrayUnsupported(int16, int32)
     @formatMethodArrayUnsupported(uint16, uint32)
 
+
     void write(Buffer buf){
         format(buf, null);
+    }
+
+    class XDRBufferMaterializerIter : MaterializerIter {
+        XDRBufferMaterializer __mt;
+
+        oper init(Materializer mt) {
+            if (!mt.isa(XDRBufferMaterializer))
+                throw InvalidArgumentError("XDRBufferMaterializerIter constructor called with incorrect Materializer type");
+            __mt = XDRBufferMaterializer.cast(mt);
+        }
+
+        bool nx() { return true;}
+        bool next() { return true;}
+        Materializer item() { return __mt};
+    }
+
+    MaterializerIter iter() {
+        return XDRBufferMaterializerIter(this);
     }
 
     oper del() {
