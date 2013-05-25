@@ -3,10 +3,13 @@
 
 import crack.hash.murmur3 Murmur3_32;
 import crack.cont.hashmap HashMap, OrderedHashMap;
-import crack.io FStr, StringFormatter;
+import crack.io FStr, StringFormatter, cout;
 import crack.lang KeyError, Buffer, InvalidArgumentError, Formatter;
 import crack.strutil StringArray;
 import whip.serializer Serializer, Materializer;
+import crack.regex escape, Regex, Match;
+
+rx := Regex(r'Array\[(\w+)\]');
 
 FStr sfmt = {};
 indent := "  ";
@@ -104,11 +107,16 @@ class Message {
       fname := fitem.key;
 
       ftype := fitem.val.type;
+      m := rx.search(ftype);
+      if (m) {
+          ftype = m.group(1);
+          cout `Found Array[$ftype]\n`;
+      }
+
       if (!builtins.hasKey(ftype) && !messages.hasKey(ftype))
         throw KeyError(sfmt `Unknown message type $ftype`);
-
-      messages[name] = msg;
     }
+    messages[name] = msg;
   }
 
   // Write member defs

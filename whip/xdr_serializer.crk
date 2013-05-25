@@ -36,21 +36,21 @@ StringArray basicTypes = ["int", "uint", "int32", "uint32", "int64", "uint64",
                           "byteptr", "float32", "float64",  "array[int]",
                           "array[uint]", "array[int32]",    "array[uint32]",
                           "array[int64]", "array[uint64]", "array[float32]",
-                          "array[float64]"
+                          "array[float64]", "array[byteptr]"
                          ];
 
 StringArray crackTypes = ["int", "uint", "int32", "uint32", "int64", "uint64",
                           "String", "float32", "float64", 
                           "Array[int]", "Array[uint]", "Array[int32]",
                           "Array[uint32]", "Array[int64]", "Array[uint64]",
-                          "Array[float32]", "Array[float64]",
+                          "Array[float32]", "Array[float64]", "Array[String]"
                          ];
 
 StringArray crackSizes = ["INT_SIZE", "INT_SIZE", "4", "4", "8", "8",
                           ".size", "4", "8",
                           ".count()", ".count()", ".count()", 
                           ".count()", ".count()", ".count()",
-                          ".count()", ".count()"];
+                          ".count()", ".count()", ".count()"];
                           
 // Serializer for XDR formatter buffers
 class XDRBufferSerializer : Serializer {
