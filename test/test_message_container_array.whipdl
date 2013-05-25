@@ -1,0 +1,5 @@
+import "test_message.whipdl";
+
+message testContainer {
+  Array[testSerialize] T;
+}

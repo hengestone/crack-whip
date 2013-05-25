@@ -81,6 +81,8 @@ int cmp(bool a, bool b) {
     @abstract void postfix(Buffer name);
 }
 
+@abstract class MaterializerIter;
+
 @abstract class Materializer {
 
     bool hasPrefix = false;
@@ -114,6 +116,15 @@ int cmp(bool a, bool b) {
     @abstract void write(Buffer buf);
     @abstract void prefix(Buffer name);
     @abstract void postfix(Buffer name);
+
+    @abstract class MaterializerIter {
+        oper init() {}
+        @abstract Materializer item();
+        @abstract bool nx();
+        @abstract bool next();
+    }
+
+    @abstract MaterializerIter iter();
 
 }
 
