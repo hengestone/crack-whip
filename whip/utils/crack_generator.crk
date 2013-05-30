@@ -154,11 +154,6 @@ class CrackClassGenerator : ClassGenerator {
     fmt `$(indent*2) materialize(mt, name);\n`;
     fmt `$(indent)}\n`;
 
-    // Write static constructor method
-    fmt `\n$(indent)oper init(Materializer mt, Buffer name) {\n`;
-    fmt `$(indent*2) materialize(mt, name);\n`;
-    fmt `$(indent)}\n`;
-
     return cnt;
   }
 
@@ -172,7 +167,12 @@ class CrackClassGenerator : ClassGenerator {
     for (mitem :in msg.fields) {
       mname := mitem.key;
       member := mitem.val;
-      sz := builtins.get(member.type);
+      mtype := member.type;
+      Match m = rx.search(mtype);
+
+      isArray := !(m is null);
+
+      sz := builtins.get(mtype);
       if (sz) {
         if (sz[0] == b".") {
           fmt `$(indent*2)cnt += $(mname)$(sz) + (4 - ($(mname)$(sz))%4)`;
@@ -180,11 +180,21 @@ class CrackClassGenerator : ClassGenerator {
         else {
           fmt `$(indent*2)cnt += $(sz)`;
         }
+        fmt `; // $mname\n`;
       }
       else {
-        fmt `$(indent*2)cnt += $(mname).sizeNeeded()`;
+        if (isArray) {
+          if (sz)
+            fmt `$(indent*2)cnt += $(mname).count() * $(sz); // $mname\n`;
+          else {
+            fmt `$(indent*2)for (el :in $(mname)) { // $mname\n`;
+            fmt `$(indent*3)cnt += el.sizeNeeded();\n`;
+            fmt `$(indent*2)}\n`;
+          }
+        }
+        else
+          fmt `$(indent*2)cnt += $(mname).sizeNeeded(); // $mname\n`;
       }
-      fmt `; // $mname\n`;
       cnt++;
     }
     fmt `$(indent*2)return cnt;\n`;
@@ -210,7 +220,7 @@ class CrackClassGenerator : ClassGenerator {
       _writeSerialize(fmt, msg, sr, mt);
       _writeSize(fmt, msg, sr, mt);
       _writeMaterialize(fmt, msg, sr, mt);
-      fmt `$(indent)$(name)_Base new(Materializer mt, Buffer name) { return __id; }\n`;
+
       fmt.write("}\n\n");
       cnt++;
     }

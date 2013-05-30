@@ -79,6 +79,10 @@ int cmp(bool a, bool b) {
     @abstract void write(Buffer buf);
     @abstract void prefix(Buffer name);
     @abstract void postfix(Buffer name);
+
+    @abstract Serializer startArray(Buffer name);
+    @abstract bool endArray(Serializer sr, Buffer name);
+    @abstract bool appendItem(Serializable obj, uint ind);
 }
 
 @abstract class MaterializerIter;
@@ -119,12 +123,12 @@ int cmp(bool a, bool b) {
 
     @abstract class MaterializerIter {
         oper init() {}
-        @abstract Materializer item();
+        @abstract Materializer elem();
         @abstract bool nx();
         @abstract bool next();
     }
 
-    @abstract MaterializerIter iter();
+    @abstract MaterializerIter iter(Buffer name);
 
 }
 

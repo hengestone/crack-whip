@@ -80,7 +80,7 @@ class XDRBufferSerializer : Serializer {
         throw InvalidResourceError("Not implemented");
     }
 
-    Buffer getBuffer() {
+    Buffer serialized() {
         return _xdrBuf;
     }
 
@@ -171,6 +171,19 @@ class XDRBufferSerializer : Serializer {
             xdr_encode_bytes(_xdrStream, val[i].buffer, val[i].size);
         }
         _xdrBuf.size = xdr_getpos(_xdrStream);
+    }
+
+    Serializer startArray(Buffer name) {
+        return this;
+    }
+
+    bool appendItem(Serializable obj, uint ind) {
+        obj.serialize(this, null);
+        return true;
+    }
+
+    bool endArray(Serializer sr, Buffer name) {
+        return true;
     }
 
     void write(Buffer buf) {
@@ -348,10 +361,10 @@ class XDRBufferMaterializer : Materializer {
 
         bool nx() { return true;}
         bool next() { return true;}
-        Materializer item() { return __mt};
+        Materializer elem() { return __mt};
     }
 
-    MaterializerIter iter() {
+    MaterializerIter iter(Buffer name) {
         return XDRBufferMaterializerIter(this);
     }
 

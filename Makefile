@@ -20,7 +20,8 @@ tests=test/test_interpreter test/test_entity test/test_serialize \
       test/ruby_generated.rb test/crack_generated.crk \
       test/crack_generated_json.crk \
       test/test_msginterpreter test/test_msgclient \
-      test/test_generator_json test/test_generator_bson
+      test/test_generator_json test/test_generator_bson \
+      test/test_generated_container_bson
 
 default: $(tests) bin/whipclass
 doc: doc/interp_states.svg
@@ -28,6 +29,7 @@ doc: doc/interp_states.svg
 test/test_serialize: $(serializer_libs)
 test/test_interpreter: $(libs)
 test/test_entity: whip/entity.crk
+
 test/test_generator: whip/utils/generator.crk $(serializer_libs) \
                      test/test_generator.crk whip/utils/crack_generator.crk
 
@@ -39,6 +41,10 @@ test/test_generator_bson: whip/utils/generator.crk $(serializer_libs) \
 
 test/test_ruby_generator: whip/utils/generator.crk $(serializer_libs) \
                      test/test_ruby_generator.crk whip/utils/ruby_generator.crk
+test/test_generated_container_bson : test/test_generated_container_bson.crk \
+                                        test/test_generated_bson.crk \
+                                        $(libs) $(serializer_libs)
+    
 whip/utils/idl_parser.crk: ragel/idl_parser.rl
 	$(RAGEL) -K -F0 $< -o $@
 

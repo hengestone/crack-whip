@@ -1,5 +1,6 @@
 // Class serialization/deserialization using supplied functions
-import crack.io Formatter, Writer, cout, FDReader, FDWriter, FStr;
+import crack.ascii escape;
+import crack.io Formatter, Writer, cout, FDReader, FDWriter, FStr, cerr;
 import whip.serializer Materializer, MaterializerIter,
                        Serializer, Serializable;
 
@@ -96,8 +97,8 @@ class BSONBufferSerializer : Serializer {
     bool _finished;
     bson _tmpBSON = null;
 
-    void _setup(uint bufsize) {
-        _b = bson_new_sized(int32(bufsize));
+    void _setup(bson b) {
+        _b = b;
         _finished = false;
         writeId = false;
         writeArraySize = false;
@@ -105,12 +106,21 @@ class BSONBufferSerializer : Serializer {
         hasPostfix = true;
     }
 
+    void _setup(uint bufsize) {
+        _setup(bson_new_sized(int32(bufsize)));
+    }
+
     oper init() {
+        cerr `BSONBufferSerializer::init()\n`;
         _setup(1024);
     }
 
     oper init(uint bufsize) {
         _setup(bufsize);
+    }
+
+    oper init(bson b) {
+        _setup(b);
     }
 
     oper init(FDWriter w) : _b = null {
@@ -127,6 +137,7 @@ class BSONBufferSerializer : Serializer {
 
     void postfix(Buffer name) {
         if (!(_tmpBSON is null)) {
+            bson_finish(_b);
             bson_append_document(_tmpBSON, name.buffer, _b);
             _b = _tmpBSON;
         }
@@ -150,6 +161,7 @@ class BSONBufferSerializer : Serializer {
 
     @define formatMethod(T, BT, s) {
         void format(T val, Buffer name) {
+            cerr.write("BSONBufferSerializer::format(T, name)\n");
             if (!bson_append_$$BT(_b, name.buffer, val))
                 throw InvalidArgumentError(fmt `Failed to element $name`);
         }
@@ -161,13 +173,14 @@ class BSONBufferSerializer : Serializer {
     @formatMethod(bool, boolean, 1)
 
     void format(String val, Buffer name) {
+        cerr `BSONBufferSerializer::format(String, $name)\n`;
         bson_append_string(_b, name.buffer, val.buffer, int32(val.size));
     }
 
     @define formatMethodUnsupported(T, RT, BT, s) {
         void format(T val, Buffer name) {
             if (!bson_append_$$BT(_b, name.buffer, RT(val)))
-                throw InvalidArgumentError(fmt `Failed to element $name`);
+                throw InvalidArgumentError(fmt `Failed to format element $name`);
         }
     }
 
@@ -183,6 +196,7 @@ class BSONBufferSerializer : Serializer {
 
     @define formatMethodArray(T, BT, s) {
         void format(Array[T] val, Buffer name) {
+            cerr `BSONBufferSerializer::format(Array[T1], name)\n`;
             fmt := FStr();
             bsonArray := bson_new();
             data := val.data();
@@ -205,6 +219,7 @@ class BSONBufferSerializer : Serializer {
 
     @define formatMethodArrayUnsupported(T, RT, BT, s) {
         void format(Array[T] val, Buffer name) {
+            cerr `BSONBufferSerializer::format(Array[T2], name)\n`;
             fmt := FStr();
             bsonArray := bson_new();
             data := val.data();
@@ -229,6 +244,7 @@ class BSONBufferSerializer : Serializer {
     @formatMethodArrayUnsupported(float32, float64, double, 4)
 
     void format(Array[String] val, Buffer name) {
+        cerr `BSONBufferSerializer::format(Array[String], name)\n`;
         fmt := FStr();
         bsonArray := bson_new();
         String d;
@@ -242,38 +258,46 @@ class BSONBufferSerializer : Serializer {
         bson_append_array(_b, name.buffer, bsonArray);
     }
 
-    void format(Array[Serializable] val, Buffer name) {
-        fmt := FStr();
-        bsonArray := bson_new();
-        uint cnt = val.count();
-
-        if (cnt > 0) {
-            data := val.data();
-            bson tmpBson = _b;
-            bson elem;
-            obj := val[0];
-
-            for (uint i; i < cnt; i++) {
-                index := fmt `$i\0`;
-                elem = bson_new();
-                _b = elem;
-                val[i].serialize(this, null);
-                bson_append_document(bsonArray, index.buffer, elem);
-            }
-            _b = tmpBson;
-        }
-        bson_append_array(_b, name.buffer, bsonArray);
+    Serializer startArray(Buffer name) {
+        asr := BSONBufferSerializer(bson_new());
+        cerr `StartArray $(asr.getBSON())\n`;
+        return asr;
     }
 
+    bool appendItem(Serializable obj, uint ind) {
+        cerr `appendItem $_b\n`;
+        bson tmpBson = _b;
+        index := fmt `$ind\0`;
+        elem := bson_new();
+        _b = elem;
+        obj.serialize(this, null);
+        bson_finish(elem);
+        _b = tmpBson;
+        result := bson_append_document(_b, index.buffer, elem);
+        cerr `item.append($elem) = $(result)\n\n`;
+        return result;
+    }
+
+    bool endArray(Serializer sr, Buffer name) {
+        asr := BSONBufferSerializer.cast(sr);
+        bson_finish(asr.getBSON());
+        result := bson_append_array(_b, name.buffer, asr.getBSON());
+        cerr `endArray: appending $(asr.getBSON()) to $_b = $result\n`;
+        return result;
+    }
 
     void write(Buffer buf) {
         format(buf, null);
     }
 
+    void format(Formatter fmt) {
+        fmt `BSONBufferSerializer: $_b`;
+    }
+
     oper del() {
-      if (!(_b is null)) {
-        bson_free(_b);
-      }
+        if (!(_b is null)) {
+            bson_free(_b);
+        }
     }
 }
 
@@ -301,7 +325,18 @@ class BSONBufferMaterializer : Materializer {
 
     oper init(Buffer buf) : _buf = buf  {
         _b = bson_new_from_data(_buf.buffer, int32(_buf.size));
+        if (_b is null)
+            throw InvalidResourceError(fmt `Could not create BSON document from supplied Buffer:$(strerror())\n`);
+        else {
+            bson_finish(_b);
+            cout `Created BSON document from data, size=$(bson_size(_b))\n`;
+        }
+        
         _c = bson_cursor_new(_b);
+        if (_c is null) {
+            throw InvalidResourceError(fmt `Could not create BSON cursor from supplied document:\n$(strerror())`);
+        }
+
         _setup();
     }
 
@@ -351,6 +386,13 @@ class BSONBufferMaterializer : Materializer {
         _c = newc;
     }
 
+    bool _nextItem() {
+        if (bson_cursor_next(_c))
+            return true;
+        else
+            throw InvalidResourceError("No available document item at BSON cursor");
+    }
+
     void _handleError(String tpe) {
         throw InvalidResourceError(
             FStr() `Error $(strerror()) materializing type $(tpe)`
@@ -359,11 +401,13 @@ class BSONBufferMaterializer : Materializer {
 
     @define formatMethod(T, RT) {
         T format(T val, Buffer name) {
+            _nextItem();
             return T(bson_cursor_get_$$RT(_c));
         }
     }
 
     bool format(bool val, Buffer name) {
+        _nextItem();
         return bson_cursor_get_boolean(_c);
     }
 
@@ -385,6 +429,7 @@ class BSONBufferMaterializer : Materializer {
     // No casting needed
     @define formatMethodArrayDirect(T, RT) {
         Array[T] format(Array[T] val, Buffer name) {
+            _nextItem();
             // Read the array length so we can allocate enough space
             BA := bson_cursor_get_array(_c); // Get the array document
             if (BA is null)
@@ -403,6 +448,7 @@ class BSONBufferMaterializer : Materializer {
 
     @define formatMethodArray(T, RT) {
         Array[T] format(Array[T] val, Buffer name) {
+            _nextItem();
             // Read the array length so we can allocate enough space
             BA := bson_cursor_get_array(_c); // Get the array document
             if (BA is null)
@@ -436,6 +482,7 @@ class BSONBufferMaterializer : Materializer {
     @formatMethodArrayDirect(bool, boolean)
 
     String format(String val, Buffer name) {
+        _nextItem();
         bytes := bson_cursor_get_string(_c);
         if (bytes is null)
             throw AssertionError("NULL found when materializing String");
@@ -444,6 +491,7 @@ class BSONBufferMaterializer : Materializer {
     }
 
     Array[String] format(Array[String] val, Buffer name) {
+        _nextItem();
         // Read the array length so we can allocate enough space
         BA := bson_cursor_get_array(_c); // Get the array document
         if (BA is null)
@@ -466,27 +514,33 @@ class BSONBufferMaterializer : Materializer {
     }
 
     class BSONMaterializerIter : MaterializerIter {
-        BSONBufferMaterializer __mt;
+        BSONBufferMaterializer __mt, __cmt = null;
         bson_cursor __c = null;
         bson        __b;
         bool        __first = true;
         uint        __index = 0;
 
         oper init(BSONBufferMaterializer mt) {
-            __mt = mt;
-            __b = bson_cursor_get_array(__mt.getBSONCursor());
-            if (!(__b is null)) // TODO raise exception is not an array
-                __c = bson_cursor_new(__b);
+            __b = bson_cursor_get_array(mt.getBSONCursor());
+            if (!(__b is null)) {// TODO raise exception is not an array
+                __mt = BSONBufferMaterializer(__b);
+                __c = __mt.getBSONCursor();
+            }
+            else
+                throw InvalidResourceError("Could not retrieve BSON array document");
         }
 
         bool next() {
             if (bson_cursor_next(__c)) {
-                __b = bson_cursor_get_document(__c);
-                __mt.setBSON(__b);
+                tmpB := bson_cursor_get_document(__c);
+                cerr `Retrieving array element $(bson_cursor_key(__c))\n`;
+                if (tmpB is null)
+                    throw InvalidResourceError(fmt `Could not retrieve BSON array element $(bson_cursor_key(__c))`);
+                __cmt = BSONBufferMaterializer(tmpB);
                 __index++;
+                return true;
             }
-            else __b = null;
-            return !(__b is null);
+            return false;
         }
 
         bool nx() {
@@ -498,22 +552,19 @@ class BSONBufferMaterializer : Materializer {
             }
         }
 
-        Materializer item() { return __mt;}
+        Materializer elem() { return __cmt;}
 
         bool isTrue() {
             return !(__b is null);
         }
-
-        oper del() {
-            bson_cursor_free(__c);
-            if (!(__b is null))
-                bson_free(__b);
-        }
     }
 
 
-    MaterializerIter iter() {
-        return BSONMaterializerIter(this);
+    MaterializerIter iter(Buffer name) {
+        if (bson_cursor_next(_c))
+            return BSONMaterializerIter(this);
+        else
+            throw InvalidResourceError("Could not advance cursor in BSON document when creating iterator");
     }
 
 
