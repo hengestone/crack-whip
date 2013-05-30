@@ -157,7 +157,7 @@ class JSONBufferSerializer : Serializer {
 
     @formatMethod(String)
 
-    Serializer startArray(Buffer name) {
+    Serializer startArray(uint size, Buffer name) {
         _popSep();
         if (name) {
             _jsonBuf.format(name);

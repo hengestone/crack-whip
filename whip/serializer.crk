@@ -80,7 +80,7 @@ int cmp(bool a, bool b) {
     @abstract void prefix(Buffer name);
     @abstract void postfix(Buffer name);
 
-    @abstract Serializer startArray(Buffer name);
+    @abstract Serializer startArray(uint size, Buffer name);
     @abstract bool endArray(Serializer sr, Buffer name);
     @abstract bool appendItem(Serializable obj, uint ind);
 }

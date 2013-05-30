@@ -6,6 +6,7 @@ import crack.ascii escape;
 import whip.utils.generator Message;
 import whip.bson_serializer BSONBufferSerializer, BSONBufferMaterializer;
 import whip.json_serializer JSONBufferSerializer, JSONBufferMaterializer;
+import whip.xdr_serializer XDRBufferSerializer, XDRBufferMaterializer;
                            
 
 import test.test_generated_bson testSerialize_Base, testContainer_Base;
@@ -29,6 +30,7 @@ data := sr.serialized();
 
 cout `data($(data.size)) = \n$(escape(data))\n`;
 
+// BSON
 mt := BSONBufferMaterializer(data);
 
 C := testContainer_Base(mt, null);
@@ -38,14 +40,28 @@ cout `C.T.length=$(C.T.count())\n`;
 for (base :in C.T)
   cout `S = $(base.S)\n`;
 
+// JSON
 jsr := JSONBufferSerializer();
-
 container.serialize(jsr, null);
 data = jsr.serialized();
 cout `data =\n$data\n`;
+
 jmt := JSONBufferMaterializer(data);
 JC := testContainer_Base(jmt, null);
 cout `JC.T.length=$(JC.T.count())\n`;
 
 for (base :in JC.T)
+  cout `S = $(base.S)\n`;
+
+// XDR
+xsr := XDRBufferSerializer();
+container.serialize(xsr, null);
+data = xsr.serialized();
+cout `data($(data.size)) = \n$(escape(data))\n`;
+
+xmt := XDRBufferMaterializer(data);
+XC := testContainer_Base(jmt, null);
+cout `XC.T.length=$(XC.T.count())\n`;
+
+for (base :in XC.T)
   cout `S = $(base.S)\n`;

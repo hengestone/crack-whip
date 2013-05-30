@@ -258,7 +258,7 @@ class BSONBufferSerializer : Serializer {
         bson_append_array(_b, name.buffer, bsonArray);
     }
 
-    Serializer startArray(Buffer name) {
+    Serializer startArray(uint size, Buffer name) {
         asr := BSONBufferSerializer(bson_new());
         cerr `StartArray $(asr.getBSON())\n`;
         return asr;
