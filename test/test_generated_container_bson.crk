@@ -30,7 +30,7 @@ container.T.append(base1);
 container.T.append(base2);
 
 sr :=  BSONBufferSerializer();
-container.serialize(sr, null);
+container.serialize(sr);
 data := sr.serialized();
 escapeData := escape(data);
 
