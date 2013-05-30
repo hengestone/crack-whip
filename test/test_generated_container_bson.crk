@@ -1,0 +1,51 @@
+// Test generated class
+// Copyright 2013 Conrad Steenberg <conrad.steenberg@gmail.com>
+
+import crack.io cout;
+import crack.ascii escape;
+import whip.utils.generator Message;
+import whip.bson_serializer BSONBufferSerializer, BSONBufferMaterializer;
+import whip.json_serializer JSONBufferSerializer, JSONBufferMaterializer;
+                           
+
+import test.test_generated_bson testSerialize_Base, testContainer_Base;
+
+base1 := testSerialize_Base();
+base1.A.append(20);
+base2 := testSerialize_Base();
+base2.S = "Good bye";
+base2.A.append(30);
+
+container := testContainer_Base();
+container.T.append(base1);
+container.T.append(base2);
+
+cout `container = \n$container\n`;
+cout `T = \n$(container.T)\n`;
+
+sr :=  BSONBufferSerializer();
+container.serialize(sr, null);
+data := sr.serialized();
+
+cout `data($(data.size)) = \n$(escape(data))\n`;
+
+mt := BSONBufferMaterializer(data);
+
+C := testContainer_Base(mt, null);
+C.format(cout);
+cout `C.T.length=$(C.T.count())\n`;
+
+for (base :in C.T)
+  cout `S = $(base.S)\n`;
+
+jsr := JSONBufferSerializer();
+
+container.serialize(jsr, null);
+data = jsr.serialized();
+cout `data =\n$data\n`;
+jmt := JSONBufferMaterializer(data);
+JC := testContainer_Base(jmt, null);
+cout `JC.T.length=$(JC.T.count())\n`;
+
+for (base :in JC.T)
+  cout `S = $(base.S)\n`;

@@ -15,7 +15,7 @@ import whip.utils.ruby_generator RubyClassGenerator;
 import whip.utils.ruby_xdr_serializer rubyTypes, rubySizes;
 import whip.xdr_serializer crackTypes, crackSizes, XDRBufferSerializer,
                            XDRBufferMaterializer;
-import whip.json_serializer JsonBufferSerializer, JsonBufferMaterializer;
+import whip.json_serializer JSONBufferSerializer, JSONBufferMaterializer;
 import whip.bson_serializer BSONBufferSerializer, BSONBufferMaterializer;
 
 CmdOptions options = [Option("help",        "h", "Show help message", "f", CMD_BOOL),
@@ -59,11 +59,11 @@ else
 // Create serializer
 serializer := options.getString("serializer");
 if (serializer == "json")
-    parser.gen.create(outfile, JsonBufferSerializer(), JsonBufferMaterializer());
+    parser.gen.create(outfile, JSONBufferSerializer(), JSONBufferMaterializer());
 else if (serializer == "bson")
     parser.gen.create(outfile, BSONBufferSerializer(), BSONBufferMaterializer());
 else if (serializer == "xdr")
-    parser.gen.create(outfile, JsonBufferSerializer(), XDRBufferMaterializer());
+    parser.gen.create(outfile, JSONBufferSerializer(), XDRBufferMaterializer());
 else  {
   cerr `Unknown output serializer $serializer, must be one of "bson", "json" or "xdr"\n`;
   exit(1);

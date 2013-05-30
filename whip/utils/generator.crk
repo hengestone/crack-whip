@@ -110,7 +110,6 @@ class Message {
       m := rx.search(ftype);
       if (m) {
           ftype = m.group(1);
-          cout `Found Array[$ftype]\n`;
       }
 
       if (!builtins.hasKey(ftype) && !messages.hasKey(ftype))

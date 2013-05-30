@@ -33,6 +33,8 @@ StringArray crackSizes = ["4", "4", "8", "8", ".size", "4", "8",
                           ".count()", ".count()"];
                           
 
+uint id = 0;
+
 class noCopyStringFormatter : JsonStringFormatter {
     oper init(): JsonStringFormatter() {}
     oper init() : JsonStringFormatter() {}
@@ -40,16 +42,19 @@ class noCopyStringFormatter : JsonStringFormatter {
 }
 
 // Serializer for JSON formatter buffers
-class JsonBufferSerializer : Serializer {
+class JSONBufferSerializer : Serializer {
 
     noCopyStringFormatter _jsonBuf;
     //ManagedBuffer _jsonBuf;
+    Array[bool] _sepStack = {};
+    uint __id;
 
     void _setup() {
         writeId = false;
         hasPrefix = true;
         hasPostfix = true;
-        itemSep = ",";
+        itemSep = ", ";
+        __id = id++;
     }
 
     oper init () : _jsonBuf() {
@@ -57,6 +62,10 @@ class JsonBufferSerializer : Serializer {
     }
 
     oper init (uint bufsize) {
+        _setup();
+    }
+
+    oper init(noCopyStringFormatter fmt) : _jsonBuf = fmt {
         _setup();
     }
 
@@ -72,25 +81,48 @@ class JsonBufferSerializer : Serializer {
     }
 
     void postfix(Buffer name) {
+        if (_sepStack.count() > 0)
+            _sepStack.pop();
         write("}");
     }
 
-
-    Buffer getBuffer() {
+    Buffer serialized() {
         if (_jsonBuf is null) {
             throw InvalidResourceError("Internal buffer is null");
         }
         return _jsonBuf.getBuffer();
     }
 
+    void _pushSep() {
+        _sepStack.append(true);
+    }
+
+    void _popSep() {
+        if (_sepStack.count() > 0) {
+            _sepStack.pop();
+            _jsonBuf.write(itemSep);
+        }
+    }
+
+    void _popSepQuiet() {
+        if (_sepStack.count() > 0) {
+            _sepStack.pop();
+        }
+    }
+
+    
+
     @define formatMethod(T) {
         void format(T val, Buffer name) {
+            _popSep();
             _jsonBuf.format(name);
             _jsonBuf.write(": ");
             _jsonBuf.format(val);
+            _pushSep();
         }
 
         void format(Array[T] val, Buffer name) {
+            _popSep();
             _jsonBuf.format(name);
             _jsonBuf.write(": [");
 
@@ -103,7 +135,7 @@ class JsonBufferSerializer : Serializer {
                 _jsonBuf.format(elem);
             }
             _jsonBuf.write("]");
-
+            _pushSep();
         }
     }
 
@@ -125,12 +157,35 @@ class JsonBufferSerializer : Serializer {
 
     @formatMethod(String)
 
+    Serializer startArray(Buffer name) {
+        _popSep();
+        if (name) {
+            _jsonBuf.format(name);
+            _jsonBuf.write(": ");
+        }
+        _jsonBuf.write("[");
+        _pushSep();
+        return JSONBufferSerializer(_jsonBuf);
+    }
+
+    bool appendItem(Serializable obj, uint ind) {
+        _popSep();
+        obj.serialize(JSONBufferSerializer(_jsonBuf), null);
+        _pushSep();
+        return true;
+    }
+
+    bool endArray(Serializer sr, Buffer name) {
+        sr.write("]");
+        return true;
+    }
+
     void write(Buffer buf) {
         _jsonBuf.write(buf);
     }
 }
 
-class JsonBufferMaterializer : Materializer {
+class JSONBufferMaterializer : Materializer {
 
     Buffer _jsonBuf;
     JsonParser _parser;
@@ -159,6 +214,10 @@ class JsonBufferMaterializer : Materializer {
 
     Buffer getBuffer() {
         return _jsonBuf;
+    }
+
+    JsonObject getResult() {
+        return _result;
     }
 
     void prefix(Buffer name) {  }
@@ -260,22 +319,45 @@ class JsonBufferMaterializer : Materializer {
 
     void write(Buffer buf) { }
 
-    class JsonBufferMaterializerIter : MaterializerIter {
-        JsonBufferMaterializer __mt;
+    class JSONBufferMaterializerIter : MaterializerIter {
+        int __index = -1;
+        bool __first = true;;
+        JsonArray __A = null;
+        
 
-        oper init(Materializer mt) {
-            if (!mt.isa(JsonBufferMaterializer))
-                throw InvalidArgumentError("JsonBufferMaterializerIter constructor called with incorrect Materializer type");
-            __mt = JsonBufferMaterializer.cast(mt);
+        oper init(Materializer mt, Buffer name) {
+            if (!mt.isa(JSONBufferMaterializer))
+                throw InvalidArgumentError("JSONBufferMaterializerIter constructor called with incorrect Materializer type");
+            jmt := JSONBufferMaterializer.cast(mt);
+            if (jmt.getResult().count() > 0) {
+                obj := jmt.getResult()[String(name)];
+                if (!obj.isa(JsonArray))
+                    throw InvalidResourceError("Attempting to iterate through non-Array");
+                __A = JsonArray.cast(obj);
+            }
         }
 
-        bool nx() { return true;}
-        bool next() { return true;}
-        Materializer item() { return __mt;}
+        bool nx() {
+            if (__first) {
+                __first = false;
+                return !(__A is null) && __A.count() > 0;
+            } else {
+                return next();
+            }
+        }
+
+        bool next() { return ++__index < __A.count();}
+        
+        Materializer elem() {
+            obj := __A[__index];
+            if (!obj.isa(JsonObject))
+                throw InvalidResourceError("Attempting to access JsonArray item as a JsonObject");
+            return JSONBufferMaterializer(JsonObject.cast(obj));
+        }
     }
 
-    MaterializerIter iter() {
-        return JsonBufferMaterializerIter(this);
+    MaterializerIter iter(Buffer name) {
+        return JSONBufferMaterializerIter(this, name);
     }
 
 

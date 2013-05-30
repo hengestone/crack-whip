@@ -4,7 +4,7 @@ import crack.ascii hex;
 import crack.cont.array Array;
 import crack.io Formatter, Writer, cout, FDReader, FDWriter, FStr;
 import whip.serializer Materializer, Serializer, Serializable, cmp;
-import whip.json_serializer JsonBufferSerializer, JsonBufferMaterializer;
+import whip.json_serializer JSONBufferSerializer, JSONBufferMaterializer;
 import test.crack_generated_json testSerialize_Base;
 
 
@@ -30,12 +30,12 @@ testSerialize test, test2;
 
   test = testSerialize();
   cout `$test\n`;
-  sJSON := JsonBufferSerializer();
+  sJSON := JSONBufferSerializer();
   test.serialize(sJSON, null);
   cout `Serialized=\n$(sJSON.getBuffer())\n`;
 
 
-  mJSON := JsonBufferMaterializer(sJSON.getBuffer());
+  mJSON := JSONBufferMaterializer(sJSON.getBuffer());
   test2 = testSerialize();
   test2.int1 = 999;
   test2.uint2 = 999;
