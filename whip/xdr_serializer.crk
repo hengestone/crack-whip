@@ -64,8 +64,8 @@ class XDRBufferSerializer : Serializer {
         _xdrStream = xdrmem_create(_xdrBuf.buffer, _xdrBuf.cap, XDR_ENCODE);
         writeId = true;
         writeArraySize = true;
-        hasPrefix = false;
-        hasPostfix = false;
+        hasPrefix = true;
+        hasPostfix = true;
     }
 
     oper init() {
@@ -173,7 +173,8 @@ class XDRBufferSerializer : Serializer {
         _xdrBuf.size = xdr_getpos(_xdrStream);
     }
 
-    Serializer startArray(Buffer name) {
+    Serializer startArray(uint size, Buffer name) {
+        xdr_encode_uint32(_xdrStream, uint32(size));
         return this;
     }
 
@@ -352,20 +353,36 @@ class XDRBufferMaterializer : Materializer {
 
     class XDRBufferMaterializerIter : MaterializerIter {
         XDRBufferMaterializer __mt;
+        uint32 __size, __index = 0;
+        bool __first = true;
 
-        oper init(Materializer mt) {
+        oper init(Materializer mt, xdr stream) {
             if (!mt.isa(XDRBufferMaterializer))
                 throw InvalidArgumentError("XDRBufferMaterializerIter constructor called with incorrect Materializer type");
             __mt = XDRBufferMaterializer.cast(mt);
+            __size = xdr_decode_uint32(stream);
         }
 
-        bool nx() { return true;}
-        bool next() { return true;}
+        bool nx() {
+            if (__first) {
+                __first = false;
+                return __size > 0;
+            } else {
+                return next();
+            }
+        }
+
+        bool next() {
+            if (!__first)
+                __index++;
+            return __index < __size;
+        }
+
         Materializer elem() { return __mt};
     }
 
     MaterializerIter iter(Buffer name) {
-        return XDRBufferMaterializerIter(this);
+        return XDRBufferMaterializerIter(this, _xdrStream);
     }
 
     oper del() {
