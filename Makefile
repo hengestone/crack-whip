@@ -23,6 +23,10 @@ tests=test/test_interpreter test/test_entity test/test_serialize \
       test/test_generator_json test/test_generator_bson \
       test/test_generated_container_bson
 
+interfaces=test/test_message.whipdl test/test_message_container.whipdl \
+           test/test_message_container_array.whipdl
+
+$(tests) : bin/whipclass
 default: $(tests) bin/whipclass
 doc: doc/interp_states.svg
 
@@ -54,11 +58,14 @@ test/ruby_generated.rb: test/test_ruby_generator
 test/crack_generated.crk: test/test_generator
 	$< > $@
 
-test/crack_generated_json.crk: bin/whipclass 
+test/crack_generated_json.crk: bin/whipclass $(interfaces)
 	$< --idl=test/test_message.whipdl --lang=crack --serializer=json> $@
 
-test/crack_generated_bson.crk: bin/whipclass 
+test/crack_generated_bson.crk: bin/whipclass $(interfaces)
 	$< --idl=test/test_message.whipdl --lang=crack --serializer=bson > $@
+
+test/test_generated_bson.crk: bin/whipclass $(interfaces)
+	$< --idl=test/test_message_container_array.whipdl --lang=crack --serializer=bson > $@
 
 test/test_msginterpreter: test/test_msginterpreter.crk whip/msgserver.crk \
                           $(libs) $(serializer_libs)
