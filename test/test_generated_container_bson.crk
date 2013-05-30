@@ -1,67 +1,68 @@
 // Test generated class
 // Copyright 2013 Conrad Steenberg <conrad.steenberg@gmail.com>
 
-import crack.io cout;
+import crack.lang AssertionError;
+import crack.io cout, FStr;
+import crack.strutil StringArray;
 import crack.ascii escape;
+
 import whip.utils.generator Message;
 import whip.bson_serializer BSONBufferSerializer, BSONBufferMaterializer;
 import whip.json_serializer JSONBufferSerializer, JSONBufferMaterializer;
 import whip.xdr_serializer XDRBufferSerializer, XDRBufferMaterializer;
-                           
 
-import test.test_generated_bson testSerialize_Base, testContainer_Base;
+import test.test_generated_bson testSerialize, testContainer;
 
-base1 := testSerialize_Base();
+bsonData := r'\272\000\000\000\004T\000\262\000\000\000\0030\000R\000\000\000\020int1\000\377\377\377\377\020uint2\000\001\000\000\000\020int3\000\002\000\000\000\020uint4\000\003\000\000\000\002S\000\006\000\000\000Hello\000\004A\000\023\000\000\000\0200\000\n\000\000\000\0201\000\024\000\000\000\000\000\0031\000U\000\000\000\020int1\000\377\377\377\377\020uint2\000\001\000\000\000\020int3\000\002\000\000\000\020uint4\000\003\000\000\000\002S\000\t\000\000\000Good bye\000\004A\000\023\000\000\000\0200\000\n\000\000\000\0201\000\036\000\000\000\000\000\000\000';
+jsonData := r'{"T": [{"int1": -1, "uint2": 1, "int3": 2, "uint4": 3, "S": "Hello", "A": [10, 20]}, {"int1": -1, "uint2": 1, "int3": 2, "uint4": 3, "S": "Good bye", "A": [10, 30]}]}';
+xdrData :=  r'\000\000\000\002\000\000\000\005Hello\000\000\000\000\000\000\002\000\000\000\n\000\000\000\024\000\000\000\bGood bye\000\000\000\002\000\000\000\n\000\000\000\036';
+StringArray errors = {};
+
+// Initialize structure
+base1 := testSerialize();
 base1.A.append(20);
-base2 := testSerialize_Base();
+base2 := testSerialize();
 base2.S = "Good bye";
 base2.A.append(30);
 
-container := testContainer_Base();
+container := testContainer();
 container.T.append(base1);
 container.T.append(base2);
-
-cout `container = \n$container\n`;
-cout `T = \n$(container.T)\n`;
 
 sr :=  BSONBufferSerializer();
 container.serialize(sr, null);
 data := sr.serialized();
+escapeData := escape(data);
 
-cout `data($(data.size)) = \n$(escape(data))\n`;
+if (escapeData != bsonData)
+    errors.append(FStr() I`BSON Serialization failed, got\n'$(escape(data))'\nlen=$(escapeData.size), instead of $(bsonData.size)\n`);
 
 // BSON
 mt := BSONBufferMaterializer(data);
-
-C := testContainer_Base(mt, null);
-C.format(cout);
-cout `C.T.length=$(C.T.count())\n`;
-
-for (base :in C.T)
-  cout `S = $(base.S)\n`;
+C := testContainer(mt, null);
 
 // JSON
 jsr := JSONBufferSerializer();
 container.serialize(jsr, null);
 data = jsr.serialized();
-cout `data =\n$data\n`;
+
+if (escape(data) != jsonData)
+    errors.append("JSON Serialization failed");
 
 jmt := JSONBufferMaterializer(data);
-JC := testContainer_Base(jmt, null);
-cout `JC.T.length=$(JC.T.count())\n`;
-
-for (base :in JC.T)
-  cout `S = $(base.S)\n`;
+JC := testContainer(jmt, null);
 
 // XDR
 xsr := XDRBufferSerializer();
 container.serialize(xsr, null);
 data = xsr.serialized();
-cout `data($(data.size)) = \n$(escape(data))\n`;
+if (escape(data) != xdrData)
+    errors.append("XDR Serialization failed");
 
 xmt := XDRBufferMaterializer(data);
-XC := testContainer_Base(jmt, null);
-cout `XC.T.length=$(XC.T.count())\n`;
+XC := testContainer(jmt, null);
 
-for (base :in XC.T)
-  cout `S = $(base.S)\n`;
+if (errors.count() > 0)
+    throw AssertionError(errors.join("\n"));
+else
+    cout `ok\n`;

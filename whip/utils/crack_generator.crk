@@ -23,7 +23,7 @@ import crack.ascii radix;
 import crack.cont.array Array;
 import crack.io FStr;
 import crack.runtime INT_SIZE;
-import whip.serializer Serializer, Materializer;
+import whip.serializer Serializer, Materializer, Serializable;
 import crack.regex escape, Regex, Match;
 
 FStr sfmt = {};\n
@@ -59,6 +59,8 @@ class CrackClassGenerator : ClassGenerator {
       // Write default value
       if (!(member.default is null))
         fmt ` = $(member.default)`;
+      else if (!builtins.get(mtype, null) && isArray)
+        fmt ` = {}`;
       fmt.write(";\n");
       cnt++;
     }
@@ -231,10 +233,11 @@ class CrackClassGenerator : ClassGenerator {
       msg := item.val;
 
       fmt `//$("-"*78)\n`;
-      fmt `class $(name) {\n`;
+      fmt `class $(name) : Serializable {\n`;
       fmt `$(indent)uint32 __id = 0x$(radix( msg.hash(name), 16));\n`;
       fmt `$(indent)uint32 getId() { return __id; }\n`;
       _writeDefs(fmt, msg, sr, mt);
+      fmt `\n$(indent)oper init() { }\n\n`;      
       _writeSerialize(fmt, msg, sr, mt);
       _writeSize(fmt, msg, sr, mt);
       _writeMaterialize(fmt, msg, sr, mt);
