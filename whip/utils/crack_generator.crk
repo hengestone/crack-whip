@@ -59,7 +59,7 @@ class CrackClassGenerator : ClassGenerator {
       // Write default value
       if (!(member.default is null))
         fmt ` = $(member.default)`;
-      else if (!builtins.get(mtype, null) && isArray)
+      else if (isArray)
         fmt ` = {}`;
       fmt.write(";\n");
       cnt++;
@@ -114,8 +114,12 @@ class CrackClassGenerator : ClassGenerator {
 
     if (sr.hasPostfix)
       fmt `$(indent*2)sr.postfix(name);\n`;
-
     fmt `$(indent)}\n`;
+
+    fmt `\n$(indent)void serialize(Serializer sr) {\n`;
+    fmt `$(indent*2)serialize(sr, null);\n`;
+    fmt `$(indent)}\n`;
+
     return cnt;
   }
 
@@ -157,7 +161,6 @@ class CrackClassGenerator : ClassGenerator {
           fmt `$(indent*3)}\n`;
           fmt `$(indent*2)}\n`;
         }
-        
         else
           fmt `$(indent*2)$(mname).materialize(mt, "$mname");\n`;
       }
@@ -169,9 +172,18 @@ class CrackClassGenerator : ClassGenerator {
 
     fmt `$(indent)}\n`;
 
-    // Write constructor
+    fmt `\n$(indent)void materialize(Materializer mt) {\n`;
+    fmt `$(indent*2)materialize(mt, null);\n`;
+    fmt `$(indent)}\n`;
+
+
+    // Write constructors
     fmt `\n$(indent)oper init(Materializer mt, Buffer name) {\n`;
     fmt `$(indent*2) materialize(mt, name);\n`;
+    fmt `$(indent)}\n`;
+
+    fmt `\n$(indent)oper init(Materializer mt) {\n`;
+    fmt `$(indent*2) materialize(mt, null);\n`;
     fmt `$(indent)}\n`;
 
     return cnt;
@@ -237,7 +249,7 @@ class CrackClassGenerator : ClassGenerator {
       fmt `$(indent)uint32 __id = 0x$(radix( msg.hash(name), 16));\n`;
       fmt `$(indent)uint32 getId() { return __id; }\n`;
       _writeDefs(fmt, msg, sr, mt);
-      fmt `\n$(indent)oper init() { }\n\n`;      
+      fmt `$(indent)oper init() { }\n\n`;      
       _writeSerialize(fmt, msg, sr, mt);
       _writeSize(fmt, msg, sr, mt);
       _writeMaterialize(fmt, msg, sr, mt);

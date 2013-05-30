@@ -134,6 +134,8 @@ int cmp(bool a, bool b) {
 
 @abstract class Serializable {    
     @abstract void serialize(Serializer sr, Buffer name);
+    @abstract void serialize(Serializer sr);
     @abstract void materialize(Materializer mt, Buffer name);
+    @abstract void materialize(Materializer mt);
     @abstract uint sizeNeeded();
 }
