@@ -1,0 +1,6 @@
+import "test_message.whipdl";
+
+message testOid {
+  Oid __uuid;
+  String name;
+}

@@ -24,8 +24,7 @@ import crack.cont.array Array;
 import crack.io FStr;
 import crack.runtime INT_SIZE;
 import whip.serializer Serializer, Materializer, Serializable;
-import crack.regex escape, Regex, Match;
-
+import crack.db.mongo Oid;
 FStr sfmt = {};\n
 `;
 
@@ -100,7 +99,7 @@ class CrackClassGenerator : ClassGenerator {
           fmt `$(indent*2)if (true) {\n`;
           fmt `$(indent*3)asr := sr.startArray($mname.count(), "$mname");\n`;
           fmt `$(indent*3)i = 0;\n`;
-          fmt `$(indent*3)for (el :in T) {\n`;
+          fmt `$(indent*3)for (el :in $mname) {\n`;
           fmt `$(indent*4)asr.appendItem(el, i++);\n`;
           fmt `$(indent*3)}\n`;
           fmt `$(indent*3)sr.endArray(asr, "$mname");\n`;

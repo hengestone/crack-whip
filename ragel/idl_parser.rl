@@ -156,9 +156,15 @@ class idlParser : idlParserBase {
         machine spec;
 
         action buffer { _readTo(p); s = p; }
+
         action nameStart {
           s = e = p;
         }
+
+        action readonly {
+            readOnly = true;
+        }
+
         action messageName {
           if (curMsgName is null) {
             e = p;
@@ -205,6 +211,7 @@ class idlParser : idlParserBase {
             curMsg.addField(curFieldName, curFieldType, curFieldDefault);
             fieldAdded = true;
           }
+          readOnly = false;
         }
 
         action messageEnd {
@@ -236,7 +243,7 @@ class idlParser : idlParserBase {
         varName = varAlpha varAlphaNum*;
         varType =varAlpha typeAlphaNum*;
 
-        field = varType >nameStart space+ >fieldType
+        field = ('@readonly'? >readonly) space+ varType >nameStart space+ >fieldType
                 varName >nameStart (space* >fieldName)
                 ('=' >fieldName >foundEq space*
                 valueAlphaNumStart >nameStart [^;]*
@@ -272,7 +279,7 @@ class idlParser : idlParserBase {
         uint parseLoops = 0;
         String curMsgName, curFieldName, curFieldType, curFieldDefault;
         Message curMsg;
-        bool foundEq = false, fieldAdded = false;
+        bool foundEq = false, fieldAdded = false, readOnly = false;
 
         pe = data_size;
         cs = spec_start;

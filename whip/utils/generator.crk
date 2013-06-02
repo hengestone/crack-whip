@@ -16,10 +16,10 @@ indent := "  ";
 
 class Member {
   String type, default;
-  bool isArray;
+  bool isArray = false, readOnly = false;
 
-  oper init(String type0, String default0) :
-        type = type0, default = default0 {
+  oper init(String type0, String default0, bool ro) :
+        type = type0, default = default0, readOnly = ro {
   }
 }
 
@@ -28,14 +28,18 @@ class Message {
   OrderedHashMap[String, Member] fields = { }; // name, [type, default]
   oper init() { }
 
-  void addField(String name, String type, String default) {
+  void addField(String name, String type, String default, bool ro) {
     if (fields.hasKey(name))
       throw KeyError(sfmt `Field $name already defined\n`);
-    fields[name] = Member(type, default);
+    fields[name] = Member(type, default, ro);
+  }
+
+  void addField(String name, String type, String default) {
+    addField(name, type, default, false);
   }
 
   void addField(String name, String type) {
-    addField(name, type, null);
+    addField(name, type, null, false);
   }
 
   void signature(Formatter fmt) {

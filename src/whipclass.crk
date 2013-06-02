@@ -13,10 +13,10 @@ import whip.utils.generator Message;
 import whip.utils.idl_parser idlParser;
 import whip.utils.ruby_generator RubyClassGenerator;
 import whip.utils.ruby_xdr_serializer rubyTypes, rubySizes;
-import whip.xdr_serializer crackTypes, crackSizes, XDRBufferSerializer,
-                           XDRBufferMaterializer;
+import whip.xdr_serializer XDRBufferSerializer, XDRBufferMaterializer;
 import whip.json_serializer JSONBufferSerializer, JSONBufferMaterializer;
-import whip.bson_serializer BSONBufferSerializer, BSONBufferMaterializer;
+import whip.bson_serializer BSONBufferSerializer, BSONBufferMaterializer,
+                            crackTypes, crackSizes;
 
 CmdOptions options = [Option("help",        "h", "Show help message", "f", CMD_BOOL),
                       Option("idl",         "i", "IDL file to parse", "", CMD_STR),

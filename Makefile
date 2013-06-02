@@ -28,7 +28,7 @@ interfaces=test/test_message.whipdl test/test_message_container.whipdl \
 
 $(tests) : bin/whipclass
 
-default: tests bin/whipclass
+default: bin/whipclass
 
 tests: $(tests)
 
@@ -90,8 +90,8 @@ bin/whipclass: src/whipclass.crk whip/utils/idl_parser.crk \
 
 
 install:
-	mkdir -p ${INSTALLDIR}
 	install -C -D -d whip ${INSTALLDIR}
+	cp -rp whip/* ${INSTALLDIR}
 	install -C bin/whipclass ${PREFIX}/bin/whipclass
 
 
