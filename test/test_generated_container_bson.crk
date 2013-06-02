@@ -39,6 +39,7 @@ if (escapeData != bsonData)
 
 // BSON
 mt := BSONBufferMaterializer(data);
+#~ mt.setStrict(true);
 C := testContainer(mt, null);
 
 // JSON
