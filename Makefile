@@ -21,10 +21,11 @@ tests=test/test_interpreter test/test_entity test/test_serialize \
       test/crack_generated_json.crk \
       test/test_msginterpreter test/test_msgclient \
       test/test_generator_json test/test_generator_bson \
-      test/test_generated_bson.crk test/test_generated_container_bson
+      test/test_generated_bson.crk test/test_generated_container_bson \
+      test/test_bson_oid
 
 interfaces=test/test_message.whipdl test/test_message_container.whipdl \
-           test/test_message_container_array.whipdl
+           test/test_message_container_array.whipdl test/test_bson_oid.whipdl
 
 $(tests) : bin/whipclass
 
@@ -71,6 +72,9 @@ test/crack_generated_bson.crk: bin/whipclass $(interfaces)
 
 test/test_generated_bson.crk: bin/whipclass $(interfaces)
 	$< --idl=test/test_message_container_array.whipdl --lang=crack --serializer=bson > $@
+
+test/test_bson_oid.crk: bin/whipclass $(interfaces)
+	$< --idl=test/test_bson_oid.whipdl --lang=crack --serializer=bson > $@
 
 test/test_msginterpreter: test/test_msginterpreter.crk whip/msgserver.crk \
                           $(libs) $(serializer_libs)

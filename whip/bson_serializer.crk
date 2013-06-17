@@ -1,7 +1,7 @@
 // Class serialization/deserialization using supplied functions
 import crack.ascii escape;
 import crack.io Formatter, Writer, cout, FDReader, FDWriter, FStr, cerr;
-import crack.db.mongo Oid;
+import crack.db.mongo_support Oid;
 import crack.lang ManagedBuffer, Buffer, InvalidArgumentError,
                   InvalidResourceError, AssertionError;
 
@@ -66,7 +66,7 @@ import crack.ext._mongo bson, bson_cursor,
 import crack.strutil StringArray;
 import crack.ascii hex;
 import crack.cont.array Array;
-import crack.db.mongo BSON;
+import crack.db.mongo BSON, BSONOid;
 
 fmt := FStr();
 
@@ -185,11 +185,13 @@ class BSONBufferSerializer : Serializer {
     @formatMethod(bool, boolean, 1)
 
     void format(String val, Buffer name) {
-        bson_append_string(_b, name.buffer, val.buffer, int32(val.size));
+        if (!(val is null) && !(name is null))
+            bson_append_string(_b, name.buffer, val.buffer, int32(val.size));
     }
 
     void format(Oid val, Buffer name) {
-        bson_append_oid(_b, name.buffer, val.buffer);
+        if (!(val is null) && !(name is null))
+            bson_append_oid(_b, name.buffer, val.buffer);
     }
 
     @define formatMethodUnsupported(T, RT, BT, s) {
@@ -211,6 +213,7 @@ class BSONBufferSerializer : Serializer {
 
     @define formatMethodArray(T, BT, s) {
         void format(Array[T] val, Buffer name) {
+            if (val is null || name is null) return;
             fmt := FStr();
             bsonArray := bson_new();
             data := val.data();
@@ -233,6 +236,7 @@ class BSONBufferSerializer : Serializer {
 
     @define formatMethodArrayUnsupported(T, RT, BT, s) {
         void format(Array[T] val, Buffer name) {
+            if (val is null || name is null) return;
             fmt := FStr();
             bsonArray := bson_new();
             data := val.data();
@@ -257,6 +261,7 @@ class BSONBufferSerializer : Serializer {
     @formatMethodArrayUnsupported(float32, float64, double, 4)
 
     void format(Array[String] val, Buffer name) {
+        if (val is null || name is null) return;
         fmt := FStr();
         bsonArray := bson_new();
         String d;
@@ -271,6 +276,7 @@ class BSONBufferSerializer : Serializer {
     }
 
     void format(Array[Oid] val, Buffer name) {
+        if (val is null || name is null) return;
         fmt := FStr();
         bsonArray := bson_new();
         String d;
@@ -521,6 +527,11 @@ class BSONBufferMaterializer : Materializer {
             throw AssertionError("NULL found when materializing String");
         // Make a copy of the string
         return String(bytes, strlen(bytes), false);
+    }
+
+    Oid format(Oid val, Buffer name) {
+        if (!_nextItem(name)) return Oid();
+        return BSONOid(_c);
     }
 
     Array[String] format(Array[String] val, Buffer name) {

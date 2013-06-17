@@ -4,13 +4,14 @@ import crack.lang ManagedBuffer, Buffer, InvalidArgumentError,
                   InvalidResourceError,  AssertionError;
 import crack.runtime INT_SIZE;
 import crack.strutil StringArray;
-import crack.ascii hex;
+import crack.ascii hex, escape;
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap, OrderedHashMap;
 import crack.enc.json.parser JsonParser;
 import crack.enc.json.lib UnexpectedToken, ParseException,
                       JsonFormatter, JsonStringFormatter, JsonObject,
                       JsonArray, JsonInt, JsonFloat, JsonBool, JsonString;
+import crack.db.mongo_support Oid;
 
 import whip.serializer Materializer, Serializer, Serializable;
 @import crack.ann define;
@@ -156,6 +157,18 @@ class JSONBufferSerializer : Serializer {
     @formatMethod(bool)
 
     @formatMethod(String)
+    void format(Oid val, Buffer name) {
+        _popSep();
+#~         _jsonBuf.format(name);
+#~         _jsonBuf.write(': "');
+#~         if (val is null)
+#~             _jsonBuf.write('null');
+#~         else
+#~             _jsonBuf.write(escape(val));
+#~         _jsonBuf.write('"');
+        _pushSep();
+    }
+    
 
     Serializer startArray(uint size, Buffer name) {
         _popSep();
@@ -316,6 +329,10 @@ class JSONBufferMaterializer : Materializer {
     @formatMethodDirect(bool, JsonBool)
 
     @formatMethodComplex(String, JsonString)
+    Oid format(Oid val, Buffer name) {
+        return Oid();
+    }
+
 
     void write(Buffer buf) { }
 

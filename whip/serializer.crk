@@ -3,9 +3,12 @@
 
 // Copyright 2012 Conrad Steenberg <conrad.steenberg@gmail.com>
 
+
 import crack.cont.array Array;
 import crack.lang Buffer;
 import crack.io FDReader, FDWriter;
+import crack.db.mongo_support Oid;
+
 @import crack.ann define, export;
 
 // Compare functions from crack.lang
@@ -54,8 +57,8 @@ int cmp(bool a, bool b) {
     oper init() {}
 
     @define formatMethod(T) {
-        @abstract void format(T val, Buffer name);
-        @abstract void format(Array[T] val, Buffer name);
+        @abstract void format(T val, Buffer __name);
+        @abstract void format(Array[T] val, Buffer __name);
     }
 
     @formatMethod(int)
@@ -75,13 +78,14 @@ int cmp(bool a, bool b) {
 
     @formatMethod(bool)
     @formatMethod(String)
+    @abstract void format(Oid val, Buffer __name);
 
     @abstract void write(Buffer buf);
-    @abstract void prefix(Buffer name);
-    @abstract void postfix(Buffer name);
+    @abstract void prefix(Buffer __name);
+    @abstract void postfix(Buffer __name);
 
-    @abstract Serializer startArray(uint size, Buffer name);
-    @abstract bool endArray(Serializer sr, Buffer name);
+    @abstract Serializer startArray(uint size, Buffer __name);
+    @abstract bool endArray(Serializer sr, Buffer __name);
     @abstract bool appendItem(Serializable obj, uint ind);
 }
 
@@ -95,8 +99,8 @@ int cmp(bool a, bool b) {
     oper init() {}
 
     @define formatMethod(T) {
-        @abstract T format(T val, Buffer name);
-        @abstract Array[T] format(Array[T] val, Buffer name);
+        @abstract T format(T val, Buffer __name);
+        @abstract Array[T] format(Array[T] val, Buffer __name);
     }
 
     @formatMethod(int)
@@ -116,10 +120,11 @@ int cmp(bool a, bool b) {
 
     @formatMethod(bool)
     @formatMethod(String)
+    @abstract Oid format(Oid val, Buffer __name);
 
     @abstract void write(Buffer buf);
-    @abstract void prefix(Buffer name);
-    @abstract void postfix(Buffer name);
+    @abstract void prefix(Buffer __name);
+    @abstract void postfix(Buffer __name);
 
     @abstract class MaterializerIter {
         oper init() {}
@@ -128,14 +133,14 @@ int cmp(bool a, bool b) {
         @abstract bool next();
     }
 
-    @abstract MaterializerIter iter(Buffer name);
+    @abstract MaterializerIter iter(Buffer __name);
 
 }
 
 @abstract class Serializable {    
-    @abstract void serialize(Serializer sr, Buffer name);
+    @abstract void serialize(Serializer sr, Buffer __name);
     @abstract void serialize(Serializer sr);
-    @abstract void materialize(Materializer mt, Buffer name);
+    @abstract void materialize(Materializer mt, Buffer __name);
     @abstract void materialize(Materializer mt);
     @abstract uint sizeNeeded();
 }

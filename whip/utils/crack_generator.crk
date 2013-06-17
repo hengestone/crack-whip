@@ -24,7 +24,7 @@ import crack.cont.array Array;
 import crack.io FStr;
 import crack.runtime INT_SIZE;
 import whip.serializer Serializer, Materializer, Serializable;
-import crack.db.mongo Oid;
+import crack.db.mongo_support Oid;
 FStr sfmt = {};\n
 `;
 
@@ -73,13 +73,13 @@ class CrackClassGenerator : ClassGenerator {
     uint cnt = 0;
     itemSep := sr.itemSep.size > 0;
 
-    fmt `\n$(indent)void serialize(Serializer sr, Buffer name) {\n`;
+    fmt `\n$(indent)void serialize(Serializer __sr, Buffer __name) {\n`;
     fmt `$(indent*2)uint i = 0;\n`;
     if (sr.hasPrefix)
-      fmt `$(indent*2)sr.prefix(name);\n`;
+      fmt `$(indent*2)__sr.prefix(__name);\n`;
 
     if (sr.writeId) {
-      fmt `$(indent*2)sr.format(__id, "__whipMessageId");\n`;
+      fmt `$(indent*2)__sr.format(__id, "__whipMessageId");\n`;
       cnt++;
     }
 
@@ -93,30 +93,30 @@ class CrackClassGenerator : ClassGenerator {
       if (isArray) mtype = m.group(1);
 
       if (builtins.hasKey(mtype))
-        fmt `$(indent*2)sr.format($mname, "$mname");\n`;
+        fmt `$(indent*2)__sr.format($mname, "$mname");\n`;
       else {
         if (isArray) {
           fmt `$(indent*2)if (true) {\n`;
-          fmt `$(indent*3)asr := sr.startArray($mname.count(), "$mname");\n`;
+          fmt `$(indent*3)asr := __sr.startArray($mname.count(), "$mname");\n`;
           fmt `$(indent*3)i = 0;\n`;
           fmt `$(indent*3)for (el :in $mname) {\n`;
           fmt `$(indent*4)asr.appendItem(el, i++);\n`;
           fmt `$(indent*3)}\n`;
-          fmt `$(indent*3)sr.endArray(asr, "$mname");\n`;
+          fmt `$(indent*3)__sr.endArray(asr, "$mname");\n`;
           fmt `$(indent*2)}\n`;
         }
         else
-          fmt `$(indent*2)$(mname).serialize(sr, "$mname");\n`;
+          fmt `$(indent*2)$(mname).serialize(__sr, "$mname");\n`;
       }
       cnt++;
     }
 
     if (sr.hasPostfix)
-      fmt `$(indent*2)sr.postfix(name);\n`;
+      fmt `$(indent*2)__sr.postfix(__name);\n`;
     fmt `$(indent)}\n`;
 
-    fmt `\n$(indent)void serialize(Serializer sr) {\n`;
-    fmt `$(indent*2)serialize(sr, null);\n`;
+    fmt `\n$(indent)void serialize(Serializer __sr) {\n`;
+    fmt `$(indent*2)serialize(__sr, null);\n`;
     fmt `$(indent)}\n`;
 
     return cnt;
@@ -126,13 +126,13 @@ class CrackClassGenerator : ClassGenerator {
   int _writeMaterialize(Formatter fmt, Message msg,
                         Serializer sr, Materializer mt) {
     uint cnt = 0;
-    fmt `\n$(indent)void materialize(Materializer mt, Buffer name) {\n`;
+    fmt `\n$(indent)void materialize(Materializer __mt, Buffer __name) {\n`;
     if (mt.hasPrefix)
-      fmt `$(indent*2)mt.prefix(name);\n`;
+      fmt `$(indent*2)__mt.prefix(__name);\n`;
 
     if (sr.writeId) {
       fmt I`$(indent*2)uint32 __in; // an input uint32\n \
-            $(indent*2)__in = mt.format(__in, "__whipMessageId"); // Always read the id\n \
+            $(indent*2)__in = __mt.format(__in, "__whipMessageId"); // Always read the id\n \
             $(indent*2)if (__in != __id)\n \
             $(indent*3)throw InvalidArgumentError(`;
             fmt.write("sfmt `Invalid message signature 0x");
@@ -149,42 +149,62 @@ class CrackClassGenerator : ClassGenerator {
       if (isArray) mtype = m.group(1);
 
       if (builtins.hasKey(mtype))
-        fmt `$(indent*2)$mname = mt.format($mname, "$mname");\n`;
+        fmt `$(indent*2)$mname = __mt.format($mname, "$mname");\n`;
       else {
         if (isArray) {
           fmt `$(indent*2)if (true) {\n`;
           fmt `$(indent*3)$mname.clear();\n`;
-          fmt `$(indent*3)it := mt.iter("$mname");\n`;
+          fmt `$(indent*3)it := __mt.iter("$mname");\n`;
           fmt `$(indent*3)while (it.next()) {\n`;
           fmt `$(indent*4)$mname.append($mtype(it.elem(), null));\n`;
           fmt `$(indent*3)}\n`;
           fmt `$(indent*2)}\n`;
         }
         else
-          fmt `$(indent*2)$(mname).materialize(mt, "$mname");\n`;
+          fmt `$(indent*2)$(mname).materialize(__mt, "$mname");\n`;
       }
       cnt++;
     }
 
     if (mt.hasPostfix)
-      fmt `$(indent*2)mt.postfix(name);\n`;
+      fmt `$(indent*2)__mt.postfix(__name);\n`;
 
     fmt `$(indent)}\n`;
 
-    fmt `\n$(indent)void materialize(Materializer mt) {\n`;
-    fmt `$(indent*2)materialize(mt, null);\n`;
+    fmt `\n$(indent)void materialize(Materializer __mt) {\n`;
+    fmt `$(indent*2)materialize(__mt, null);\n`;
     fmt `$(indent)}\n`;
 
 
     // Write constructors
-    fmt `\n$(indent)oper init(Materializer mt, Buffer name) {\n`;
-    fmt `$(indent*2) materialize(mt, name);\n`;
+    fmt `\n$(indent)oper init(Materializer __mt, Buffer __name) {\n`;
+    fmt `$(indent*2) materialize(__mt, __name);\n`;
     fmt `$(indent)}\n`;
 
-    fmt `\n$(indent)oper init(Materializer mt) {\n`;
-    fmt `$(indent*2) materialize(mt, null);\n`;
+    fmt `\n$(indent)oper init(Materializer __mt) {\n`;
+    fmt `$(indent*2) materialize(__mt, null);\n`;
     fmt `$(indent)}\n`;
 
+    return cnt;
+  }
+
+  // Write getters/setters for names with underscores
+  int _writeGetSet(Formatter fmt, Message msg,
+                        Serializer sr, Materializer mt) {
+    uint cnt = 0;
+
+    for (mitem :in msg.fields) {
+      mname := mitem.key;
+      if (mname[0] != b"_") continue;
+      cnt++;
+
+      member := mitem.val;
+      mtype := member.type;
+
+      fmt `$(indent)void set$mname($mtype new$mname) { $mname = new$mname }\n`;
+      fmt `$(indent)$mtype get$mname() { return $mname }\n`;
+    }
+    if (cnt > 0) fmt `\n`;
     return cnt;
   }
 
@@ -202,8 +222,9 @@ class CrackClassGenerator : ClassGenerator {
       Match m = rx.search(mtype);
 
       isArray := !(m is null);
-
       sz := builtins.get(mtype);
+
+      if (isArray) mtype = m.group(1);
       if (sz) {
         if (sz[0] == b".") {
           fmt `$(indent*2)cnt += $(mname)$(sz) + (4 - ($(mname)$(sz))%4)`;
@@ -215,13 +236,13 @@ class CrackClassGenerator : ClassGenerator {
       }
       else {
         if (isArray) {
+          sz := builtins.get(mtype);
+          fmt `$(indent*2)for (el :in $(mname)) { // $mname\n`;
           if (sz)
-            fmt `$(indent*2)cnt += $(mname).count() * $(sz); // $mname\n`;
-          else {
-            fmt `$(indent*2)for (el :in $(mname)) { // $mname\n`;
+          fmt `$(indent*3)cnt += el$(sz);\n`;
+          else
             fmt `$(indent*3)cnt += el.sizeNeeded();\n`;
-            fmt `$(indent*2)}\n`;
-          }
+          fmt `$(indent*2)}\n`;
         }
         else
           fmt `$(indent*2)cnt += $(mname).sizeNeeded(); // $mname\n`;
@@ -248,7 +269,8 @@ class CrackClassGenerator : ClassGenerator {
       fmt `$(indent)uint32 __id = 0x$(radix( msg.hash(name), 16));\n`;
       fmt `$(indent)uint32 getId() { return __id; }\n`;
       _writeDefs(fmt, msg, sr, mt);
-      fmt `$(indent)oper init() { }\n\n`;      
+      fmt `$(indent)oper init() { }\n\n`;
+      _writeGetSet(fmt, msg, sr, mt);
       _writeSerialize(fmt, msg, sr, mt);
       _writeSize(fmt, msg, sr, mt);
       _writeMaterialize(fmt, msg, sr, mt);
