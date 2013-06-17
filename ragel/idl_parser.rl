@@ -165,6 +165,10 @@ class idlParser : idlParserBase {
             readOnly = true;
         }
 
+        action newLine {
+            line++;
+        }
+
         action messageName {
           if (curMsgName is null) {
             e = p;
@@ -234,7 +238,9 @@ class idlParser : idlParserBase {
           }
         }
 
-        eol = [\r\n]+;
+        eol = [\r\n];
+        spc = [ \t];
+        sep = (spc* eol? >newLine spc+);
         varAlpha = [a-zA-Z_];
         varAlphaNum = [a-zA-Z_0-9\-]+;
         typeAlphaNum = [a-zA-Z_0-9\-\[\]]+;
@@ -243,7 +249,8 @@ class idlParser : idlParserBase {
         varName = varAlpha varAlphaNum*;
         varType =varAlpha typeAlphaNum*;
 
-        field = ('@readonly'? >readonly) space+ varType >nameStart space+ >fieldType
+        field = ('@readonly'? >readonly) space+ varType
+                >nameStart space+ >fieldType
                 varName >nameStart (space* >fieldName)
                 ('=' >fieldName >foundEq space*
                 valueAlphaNumStart >nameStart [^;]*
@@ -294,7 +301,7 @@ class idlParser : idlParserBase {
         /* Check if we failed. */
         if ( cs == spec_error ) {
             /* Machine failed before finding a token. */
-            throw ParseError(data.substr(s, p - s));
+            throw ParseError(sfmt `Syntax error on line $line:$col, near $(data.substr(s, p - s))`);
         }
 
         if (p < pe) {
