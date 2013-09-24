@@ -24,7 +24,7 @@ import crack.cont.array Array;
 import crack.io FStr;
 import crack.runtime INT_SIZE;
 import whip.serializer Serializer, Materializer, Serializable;
-import crack.db.mongo_support Oid;
+import crack.db.mongo_support OID;
 FStr sfmt = {};\n
 `;
 

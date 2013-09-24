@@ -5,6 +5,7 @@ import crack.lang AssertionError;
 import crack.io cout, FStr;
 import crack.strutil StringArray;
 import crack.ascii escape;
+import crack.enc.base64 encode;
 
 import whip.utils.generator Message;
 import whip.bson_serializer BSONBufferSerializer, BSONBufferMaterializer;
@@ -13,7 +14,7 @@ import whip.xdr_serializer XDRBufferSerializer, XDRBufferMaterializer;
 
 import test.test_generated_bson testSerialize, testContainer;
 
-bsonData := r'\272\000\000\000\004T\000\262\000\000\000\0030\000R\000\000\000\020int1\000\377\377\377\377\020uint2\000\001\000\000\000\020int3\000\002\000\000\000\020uint4\000\003\000\000\000\002S\000\006\000\000\000Hello\000\004A\000\023\000\000\000\0200\000\n\000\000\000\0201\000\024\000\000\000\000\000\0031\000U\000\000\000\020int1\000\377\377\377\377\020uint2\000\001\000\000\000\020int3\000\002\000\000\000\020uint4\000\003\000\000\000\002S\000\t\000\000\000Good bye\000\004A\000\023\000\000\000\0200\000\n\000\000\000\0201\000\036\000\000\000\000\000\000\000';
+bsonData := r'\272\000\000\000\004T\000\262\000\000\000\0030\000R\000\000\000\020int1\000\377\377\377\377\020uint2\000\001\000\000\000\020int3\000\002\000\000\000\020uint4\000\003\000\000\000\005S\000\005\000\000\000\000Hello\004A\000\023\000\000\000\0200\000\n\000\000\000\0201\000\024\000\000\000\000\000\0031\000U\000\000\000\020int1\000\377\377\377\377\020uint2\000\001\000\000\000\020int3\000\002\000\000\000\020uint4\000\003\000\000\000\005S\000\b\000\000\000\000Good bye\004A\000\023\000\000\000\0200\000\n\000\000\000\0201\000\036\000\000\000\000\000\000\000';
 jsonData := r'{"T": [{"int1": -1, "uint2": 1, "int3": 2, "uint4": 3, "S": "Hello", "A": [10, 20]}, {"int1": -1, "uint2": 1, "int3": 2, "uint4": 3, "S": "Good bye", "A": [10, 30]}]}';
 xdrData :=  r'\000\000\000\002\000\000\000\005Hello\000\000\000\000\000\000\002\000\000\000\n\000\000\000\024\000\000\000\bGood bye\000\000\000\002\000\000\000\n\000\000\000\036';
 StringArray errors = {};
@@ -35,7 +36,7 @@ data := sr.serialized();
 escapeData := escape(data);
 
 if (escapeData != bsonData)
-    errors.append(FStr() I`BSON Serialization failed, got\n'$(escape(data))'\nlen=$(escapeData.size), instead of $(bsonData.size)\n`);
+    errors.append(FStr() I`BSON Serialization failed, got\n'$(escapeData)'\nlen=$(escapeData.size), instead of \n'$(escape(bsonData))'\n`);
 
 // BSON
 mt := BSONBufferMaterializer(data);
