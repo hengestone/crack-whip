@@ -7,7 +7,7 @@
 import crack.cont.array Array;
 import crack.lang Buffer;
 import crack.io FDReader, FDWriter;
-import crack.db.mongo_support Oid;
+import crack.db.mongo_support OID;
 
 @import crack.ann define, export;
 
@@ -78,7 +78,7 @@ int cmp(bool a, bool b) {
 
     @formatMethod(bool)
     @formatMethod(String)
-    @abstract void format(Oid val, Buffer __name);
+    @abstract void format(OID val, Buffer __name);
 
     @abstract void write(Buffer buf);
     @abstract void prefix(Buffer __name);
@@ -120,7 +120,7 @@ int cmp(bool a, bool b) {
 
     @formatMethod(bool)
     @formatMethod(String)
-    @abstract Oid format(Oid val, Buffer __name);
+    @abstract OID format(OID val, Buffer __name);
 
     @abstract void write(Buffer buf);
     @abstract void prefix(Buffer __name);

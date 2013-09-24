@@ -7,11 +7,11 @@ import crack.strutil StringArray;
 import crack.ascii hex, escape, bin;
 import crack.cont.array Array;
 import crack.cont.hashmap HashMap, OrderedHashMap;
-import crack.enc.json.parser JsonParser;
+import crack.enc.json.parser JSONParser;
 import crack.enc.json.lib UnexpectedToken, ParseException,
-                      JsonFormatter, JsonStringFormatter, JsonObject,
-                      JsonArray, JsonInt, JsonFloat, JsonBool, JsonString;
-import crack.db.mongo_support Oid;
+                      JSONFormatter, JSONStringFormatter, JSONObject,
+                      JSONArray, JSONInt, JSONFloat, JSONBool, JSONString;
+import crack.db.mongo_support OID;
 
 import whip.serializer Materializer, Serializer, Serializable;
 @import crack.ann define;
@@ -36,9 +36,9 @@ StringArray crackSizes = ["4", "4", "8", "8", ".size", "4", "8",
 
 uint id = 0;
 
-class noCopyStringFormatter : JsonStringFormatter {
-    oper init(): JsonStringFormatter() {}
-    oper init() : JsonStringFormatter() {}
+class noCopyStringFormatter : JSONStringFormatter {
+    oper init(): JSONStringFormatter() {}
+    oper init() : JSONStringFormatter() {}
     Buffer getBuffer() { return Buffer(_writer.buffer, _writer.size); }
 }
 
@@ -156,7 +156,7 @@ class JSONBufferSerializer : Serializer {
 
     @formatMethod(String)
 
-    void format(Oid val, Buffer name) {
+    void format(OID val, Buffer name) {
         _popSep();
         _jsonBuf.format(name);
         _jsonBuf.write(': ');
@@ -199,12 +199,12 @@ class JSONBufferSerializer : Serializer {
 class JSONBufferMaterializer : Materializer {
 
     Buffer _jsonBuf;
-    JsonParser _parser;
-    JsonObject _result;
+    JSONParser _parser;
+    JSONObject _result;
 
     void _initResult(Object result) {
-        if (result.isa(JsonObject))
-            _result = JsonObject.cast(result);
+        if (result.isa(JSONObject))
+            _result = JSONObject.cast(result);
         else
             throw InvalidArgumentError("JSON text must have an object (map) result");
     }
@@ -227,7 +227,7 @@ class JSONBufferMaterializer : Materializer {
         return _jsonBuf;
     }
 
-    JsonObject getResult() {
+    JSONObject getResult() {
         return _result;
     }
 
@@ -242,7 +242,7 @@ class JSONBufferMaterializer : Materializer {
         }
 
         Array[T] format(Array[T] val, Buffer name) {
-            jA := JsonArray.cast(_result[String(name)]);
+            jA := JSONArray.cast(_result[String(name)]);
             A := Array[T](jA.count());
             for (elem :in jA) {
                 A.append(jT.cast(elem).value);
@@ -251,7 +251,7 @@ class JSONBufferMaterializer : Materializer {
         }
 
         OrderedHashMap[String, T] format(OrderedHashMap[String, T] map, Buffer name) {
-            jM := JsonObject.cast(_result);
+            jM := JSONObject.cast(_result);
             M := OrderedHashMap[String, T]();
             for (item :in jM) {
                 M[item.key] = jT.cast(item.val).value;
@@ -266,7 +266,7 @@ class JSONBufferMaterializer : Materializer {
         }
 
         Array[T] format(Array[T] val, Buffer name) {
-            jA := JsonArray.cast(_result[String(name)]);
+            jA := JSONArray.cast(_result[String(name)]);
             A := Array[T](jA.count());
             for (elem :in jA) {
                 A.append(T(jT.cast(elem).value));
@@ -275,7 +275,7 @@ class JSONBufferMaterializer : Materializer {
         }
 
         OrderedHashMap[String, T] format(OrderedHashMap[String, T] map, Buffer name) {
-            jM := JsonObject.cast(_result);
+            jM := JSONObject.cast(_result);
             M := OrderedHashMap[String, T]();
             for (item :in jM) {
                 M[item.key] = T(jT.cast(item.val).value);
@@ -291,10 +291,10 @@ class JSONBufferMaterializer : Materializer {
 
         Array[T] format(Array[T] val, Buffer name) {
             jO := _result[String(name)];
-            if (!jO.isa(JsonArray))
+            if (!jO.isa(JSONArray))
                 throw InvalidArgumentError(FStr()
-                  `Expected JsonArray when materializing $jO`);
-            jA := JsonArray.cast(jO);
+                  `Expected JSONArray when materializing $jO`);
+            jA := JSONArray.cast(jO);
             A := Array[T](jA.count());
 
             for (elem :in jA) {
@@ -312,30 +312,30 @@ class JSONBufferMaterializer : Materializer {
         }
     }
 
-    @formatMethodDirect(int, JsonInt)
-    @formatMethodSimple(uint,JsonInt)
+    @formatMethodDirect(int, JSONInt)
+    @formatMethodSimple(uint,JSONInt)
 
-    @formatMethodSimple(int16, JsonInt)
-    @formatMethodSimple(int32, JsonInt)
-    @formatMethodSimple(uint16, JsonInt)
-    @formatMethodSimple(uint32, JsonInt)
+    @formatMethodSimple(int16, JSONInt)
+    @formatMethodSimple(int32, JSONInt)
+    @formatMethodSimple(uint16, JSONInt)
+    @formatMethodSimple(uint32, JSONInt)
 
-    @formatMethodSimple(int64, JsonInt)
-    @formatMethodSimple(uint64, JsonInt)
+    @formatMethodSimple(int64, JSONInt)
+    @formatMethodSimple(uint64, JSONInt)
 
-    @formatMethodDirect(float, JsonFloat)
-    @formatMethodSimple(float32, JsonFloat)
-    @formatMethodSimple(float64, JsonFloat)
-    @formatMethodDirect(bool, JsonBool)
+    @formatMethodDirect(float, JSONFloat)
+    @formatMethodSimple(float32, JSONFloat)
+    @formatMethodSimple(float64, JSONFloat)
+    @formatMethodDirect(bool, JSONBool)
 
-    @formatMethodComplex(String, JsonString)
-    Oid format(Oid val, Buffer name) {
+    @formatMethodComplex(String, JSONString)
+    OID format(OID val, Buffer name) {
         jO := _result[String(name)];
-        if (jO is null) return Oid();
-        if (!jO.isa(JsonString))
+        if (jO is null) return OID();
+        if (!jO.isa(JSONString))
             throw InvalidArgumentError(FStr()
                   `Expected String when materializing $jO`);
-        return Oid(bin(Buffer.cast(jO)));
+        return OID(bin(Buffer.cast(jO)));
     }
 
 
@@ -344,7 +344,7 @@ class JSONBufferMaterializer : Materializer {
     class JSONBufferMaterializerIter : MaterializerIter {
         int __index = -1;
         bool __first = true;;
-        JsonArray __A = null;
+        JSONArray __A = null;
         
 
         oper init(Materializer mt, Buffer name) {
@@ -353,9 +353,9 @@ class JSONBufferMaterializer : Materializer {
             jmt := JSONBufferMaterializer.cast(mt);
             if (jmt.getResult().count() > 0) {
                 obj := jmt.getResult()[String(name)];
-                if (!obj.isa(JsonArray))
+                if (!obj.isa(JSONArray))
                     throw InvalidResourceError("Attempting to iterate through non-Array");
-                __A = JsonArray.cast(obj);
+                __A = JSONArray.cast(obj);
             }
         }
 
@@ -372,9 +372,9 @@ class JSONBufferMaterializer : Materializer {
         
         Materializer elem() {
             obj := __A[__index];
-            if (!obj.isa(JsonObject))
-                throw InvalidResourceError("Attempting to access JsonArray item as a JsonObject");
-            return JSONBufferMaterializer(JsonObject.cast(obj));
+            if (!obj.isa(JSONObject))
+                throw InvalidResourceError("Attempting to access JSONArray item as a JSONObject");
+            return JSONBufferMaterializer(JSONObject.cast(obj));
         }
     }
 

@@ -1,4 +1,4 @@
 message testOid {
-  Oid __uuid;
+  OID __uuid;
   String name;
 }
